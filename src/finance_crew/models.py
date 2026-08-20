@@ -33,9 +33,17 @@ class ExpenseRequest:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "ExpenseRequest":
+        from .errors import ValidationError
+
+        if not isinstance(d, dict):
+            raise ValidationError(f"expense payload must be an object, got {type(d).__name__}")
         known = {f: d.get(f) for f in cls.__dataclass_fields__}  # type: ignore[attr-defined]
         # sensible defaults for anything missing
-        known["amount"] = float(known.get("amount") or 0.0)
+        raw_amount = known.get("amount")
+        try:
+            known["amount"] = float(raw_amount or 0.0)
+        except (TypeError, ValueError) as exc:
+            raise ValidationError(f"amount must be a number, got {raw_amount!r}") from exc
         known["has_receipt"] = bool(known.get("has_receipt"))
         known["category"] = (known.get("category") or "other")
         return cls(**{k: v for k, v in known.items() if v is not None})

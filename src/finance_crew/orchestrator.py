@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from .config import Settings
+from .errors import ConfigurationError
 from .models import ApprovalResult, ExpenseRequest
 
 
@@ -43,6 +44,15 @@ def build_orchestrator(settings: Settings | None = None) -> Orchestrator:
         return LangGraphOrchestrator(settings)
 
     if engine == "crewai" or (engine == "auto" and settings.can_run_crewai):
+        # Explicitly asking for the real crew without a key is a misconfiguration,
+        # not a silent fallback — fail fast with a clear, actionable message.
+        if engine == "crewai" and not settings.api_key:
+            key_env = "GEMINI_API_KEY" if settings.llm_provider == "gemini" else "OPENAI_API_KEY"
+            raise ConfigurationError(
+                "ENGINE=crewai requires an LLM API key. "
+                f"Set {key_env} (and USE_CREWAI=true), or use ENGINE=local / ENGINE=langgraph "
+                "to run without a key."
+            )
         # Imported lazily so the package (and CI) never require crewai/an LLM.
         from .crew import CrewAIOrchestrator
 
