@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/FastAPI-service-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI">
   <img src="https://img.shields.io/badge/Docker-containerized-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker">
   <img src="https://img.shields.io/badge/Kubernetes-ready-326CE5?style=flat-square&logo=kubernetes&logoColor=white" alt="Kubernetes">
-  <img src="https://img.shields.io/badge/tests-18%20passing-2ea44f?style=flat-square" alt="tests">
+  <img src="https://img.shields.io/badge/tests-31%20passing-2ea44f?style=flat-square" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT">
 </p>
 
@@ -114,9 +114,11 @@ cd agentic-finance-crew
 pip install -e ".[dev]"
 
 python run_demo.py          # run the crew over the sample batch (no key needed)
-pytest -q                   # 15 tests, all green
+pytest -q                   # 31 tests, all green
 uvicorn app:app --reload    # API at http://localhost:8000/docs
 ```
+
+> Prefer `make`? `make install && make test && make demo` — see [Common tasks](#-common-tasks).
 
 ### 🐳 Docker
 
@@ -150,6 +152,72 @@ cp .env.example .env         # set USE_CREWAI=true and your OPENAI_API_KEY / GEM
 pip install -e ".[crewai]"
 ```
 
+## ⚙️ Configuration
+
+Everything is driven by environment variables — the app runs fully with **none
+set** (deterministic local engine, no secrets). Set these only to change the
+engine or enable the real crew.
+
+| Variable         | Default        | Values / example                          | Description |
+|------------------|----------------|-------------------------------------------|-------------|
+| `ENGINE`         | `auto`         | `auto` · `local` · `langgraph` · `crewai` | Which orchestrator runs. `auto` picks the real crew if opted-in **and** keyed, otherwise `local`. |
+| `USE_CREWAI`     | `false`        | `true` / `false`                          | Opt-in flag for the real CrewAI crew (needs a key too). |
+| `LLM_PROVIDER`   | `openai`       | `openai` · `gemini`                       | LLM vendor used by the CrewAI engine. |
+| `LLM_MODEL`      | `gpt-4o-mini`  | e.g. `gpt-4o-mini`, `gemini-1.5-flash`    | Model name for the chosen provider. |
+| `OPENAI_API_KEY` | _(unset)_      | `sk-...`                                  | Required when `LLM_PROVIDER=openai` and the crew is enabled. |
+| `GEMINI_API_KEY` | _(unset)_      | `AIza...`                                 | Required when `LLM_PROVIDER=gemini` and the crew is enabled. |
+
+Selecting `ENGINE=crewai` without a matching key fails fast with a clear
+`ConfigurationError` (surfaced as a `400` by the API) rather than a silent
+fallback. See [`.env.example`](.env.example) for a copy-paste starting point.
+
+## 🌐 API examples
+
+Start the service with `uvicorn app:app --reload` (or `make run`), then:
+
+```bash
+# Single request
+curl -s http://localhost:8000/approve \
+  -H "Content-Type: application/json" \
+  -d '{"id":"EXP-1001","employee":"A. Rivera","category":"software","amount":149,"has_receipt":true}'
+# -> {"request_id":"EXP-1001","decision":"auto_approved","risk_score":4, ...}
+
+# Batch (earlier items become history, so duplicates are flagged)
+curl -s http://localhost:8000/approve/batch \
+  -H "Content-Type: application/json" \
+  -d '[{"id":"EXP-1","employee":"E","category":"software","amount":149,"has_receipt":true},
+       {"id":"EXP-2","employee":"E","category":"meals","amount":180}]'
+
+# Health / active engine
+curl -s http://localhost:8000/health   # -> {"status":"ok","engine":"local"}
+```
+
+Interactive OpenAPI docs are always at [`/docs`](http://localhost:8000/docs).
+Malformed payloads return a clean `422`; an empty or oversized batch is
+rejected before any work runs.
+
+## 🧪 Testing
+
+```bash
+pip install -e ".[dev]"      # pytest + httpx + langgraph
+pytest -q                    # 31 tests: domain logic, API, engines, error paths
+python run_demo.py           # end-to-end CLI smoke test over the sample batch
+```
+
+The suite covers the deterministic policy tools, the LangGraph↔local **parity**
+guarantee, the FastAPI endpoints (happy path + validation/edge cases), and the
+engine misconfiguration paths — all key-free. CI runs the same on Python
+3.10–3.12 plus a Docker build and `/health` check.
+
+## 🚢 Deployment
+
+| Target | How | Notes |
+|--------|-----|-------|
+| **Live demo** | [agentic-finance-crew-deploy.vercel.app](https://agentic-finance-crew-deploy.vercel.app) | Runs key-free in local-engine mode. |
+| **Docker Compose** | `docker compose up --build` | API on `http://localhost:8000`; healthcheck built in. |
+| **Docker** | `docker build -t agentic-finance-crew . && docker run -p 8000:8000 agentic-finance-crew` | Slim multi-stage, non-root image. |
+| **Kubernetes** | `kubectl apply -f k8s/` | Deployment (2 replicas, liveness/readiness probes, non-root) + Service. Keys come from a `Secret`, never plain values. |
+
 ## 🔒 Security & Data
 
 - **No secrets in code or images** — every key is read from the environment; `.env` is gitignored, only `.env.example` (placeholders) is tracked. K8s manifests reference a `Secret`, not plain values.
@@ -163,6 +231,22 @@ pip install -e ".[crewai]"
 - Add **eval cases** scoring the crew's rationale quality against the deterministic ground truth.
 - Slack / email approval actions for the human-in-the-loop step.
 - Deploy the FastAPI service (runs key-free in local mode) as a public live demo.
+
+## 🛠️ Common tasks
+
+A [`Makefile`](Makefile) wraps the everyday commands:
+
+| Command | What it does |
+|---------|--------------|
+| `make install` | `pip install -e ".[dev]"` (base + dev deps) |
+| `make test` | Run the full pytest suite |
+| `make demo` | Run the CLI demo over the sample batch |
+| `make run` | Start the API with autoreload at `:8000` |
+| `make docker-build` | Build the Docker image |
+| `make docker-up` | `docker compose up --build` |
+| `make clean` | Remove caches and build artifacts |
+
+Run `make help` to list them.
 
 ---
 
