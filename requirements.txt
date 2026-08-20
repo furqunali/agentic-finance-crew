@@ -1,0 +1,8 @@
+# Base runtime — light, no LLM/keys needed. The demo, API and tests all run on this.
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+
+# Real multi-agent engine (optional). Uncomment or `pip install crewai` to enable
+# USE_CREWAI=true mode. Kept optional so images and CI stay fast.
+# crewai>=0.70

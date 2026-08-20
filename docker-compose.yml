@@ -1,0 +1,20 @@
+# Local one-command run:  docker compose up --build
+# Serves the API on http://localhost:8000  (docs at /docs)
+services:
+  finance-crew:
+    build: .
+    image: agentic-finance-crew:latest
+    ports:
+      - "8000:8000"
+    environment:
+      # Defaults to the local engine (no keys). To use the real crew, set:
+      # USE_CREWAI: "true"
+      # LLM_PROVIDER: "openai"
+      # OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      USE_CREWAI: "false"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped

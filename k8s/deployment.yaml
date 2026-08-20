@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentic-finance-crew
+  labels:
+    app: agentic-finance-crew
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: agentic-finance-crew
+  template:
+    metadata:
+      labels:
+        app: agentic-finance-crew
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: finance-crew
+          image: agentic-finance-crew:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: USE_CREWAI
+              value: "false"
+            # For the real crew, mount the key from a Secret instead of plain env:
+            # - name: OPENAI_API_KEY
+            #   valueFrom:
+            #     secretKeyRef: { name: finance-crew-secrets, key: openai-api-key }
+          resources:
+            requests: { cpu: "100m", memory: "128Mi" }
+            limits: { cpu: "500m", memory: "512Mi" }
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 10
+            periodSeconds: 20
