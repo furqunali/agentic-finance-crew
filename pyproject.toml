@@ -17,10 +17,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# The real multi-agent engine. Optional so the demo, tests and CI stay light
-# and run with zero API keys. Install with:  pip install -e ".[crewai]"
+# Optional engines — kept out of the base install so the demo and CI stay light
+# and run with zero API keys.
+#   pip install -e ".[crewai]"     # real multi-agent CrewAI crew (needs a key)
+#   pip install -e ".[langgraph]"  # LangGraph state-graph engine (no key needed)
 crewai = ["crewai>=0.70"]
-dev = ["pytest>=8", "httpx>=0.27"]
+langgraph = ["langgraph>=0.2"]
+dev = ["pytest>=8", "httpx>=0.27", "langgraph>=0.2"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

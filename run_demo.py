@@ -33,7 +33,12 @@ def main(argv: list[str]) -> int:
     payloads = json.loads(path.read_text(encoding="utf-8"))
 
     settings = Settings.from_env()
-    engine = "CrewAI (real agents)" if settings.can_run_crewai else "local (deterministic, no LLM)"
+    labels = {
+        "crewai": "CrewAI (real multi-agent crew)",
+        "langgraph": "LangGraph (stateful graph, no LLM)",
+        "local": "local (deterministic, no LLM)",
+    }
+    engine = labels.get(settings.active_engine, settings.active_engine)
     print(f"\n  Agentic Finance Crew — engine: {engine}")
     print("  " + "-" * 68)
 

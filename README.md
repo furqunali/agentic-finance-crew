@@ -4,10 +4,11 @@
 
 <p>
   <img src="https://img.shields.io/badge/CrewAI-multi--agent-0d9488?style=flat-square" alt="CrewAI">
+  <img src="https://img.shields.io/badge/LangGraph-state--graph-1c3d5a?style=flat-square" alt="LangGraph">
   <img src="https://img.shields.io/badge/FastAPI-service-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI">
   <img src="https://img.shields.io/badge/Docker-containerized-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker">
   <img src="https://img.shields.io/badge/Kubernetes-ready-326CE5?style=flat-square&logo=kubernetes&logoColor=white" alt="Kubernetes">
-  <img src="https://img.shields.io/badge/tests-15%20passing-2ea44f?style=flat-square" alt="tests">
+  <img src="https://img.shields.io/badge/tests-18%20passing-2ea44f?style=flat-square" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT">
 </p>
 
@@ -35,7 +36,8 @@ The agents **explain and enrich** the decision; a deterministic rule engine **ma
 flowchart TD
     A[Expense request<br/>API / CLI / batch] --> P[Pipeline]
     P --> F{Orchestrator factory<br/>Strategy pattern}
-    F -->|USE_CREWAI=true + key| C[CrewAIOrchestrator]
+    F -->|ENGINE=crewai + key| C[CrewAIOrchestrator]
+    F -->|ENGINE=langgraph| LG[LangGraphOrchestrator]
     F -->|default · no key| L[LocalOrchestrator]
 
     subgraph Crew["Shared 3-stage workflow"]
@@ -45,6 +47,7 @@ flowchart TD
     end
 
     C --> Crew
+    LG --> Crew
     L --> Crew
     Crew --> G[[decide&#40;&#41; — policy guardrail]]
     G --> R1[Auto-approved]
@@ -54,12 +57,13 @@ flowchart TD
     T[(Shared deterministic tools<br/>policy · risk · duplicate)] -.-> S1 & S2 & S3
 ```
 
-**The key design idea:** two interchangeable engines implement one `Orchestrator.process()` contract.
+**The key design idea:** three interchangeable engines implement one `Orchestrator.process()` contract.
 
 - **`CrewAIOrchestrator`** — the real multi-agent CrewAI crew (opt-in; needs an LLM key).
+- **`LangGraphOrchestrator`** — the same workflow modeled as a **LangGraph** stateful graph (`START → intake → analyze → approve → END`); needs no LLM, so it's fully testable.
 - **`LocalOrchestrator`** — a deterministic, zero-dependency engine that runs the *same* workflow with no LLM.
 
-Both call the **same shared tools** for the hard rules, and both funnel through the **same `decide()` guardrail**. Selecting between them is a runtime config choice, never a code change — so the demo, unit tests and CI run fully **without any API key**, while production can flip to the real crew with one environment variable.
+All three call the **same shared tools** for the hard rules, and all funnel through the **same `decide()` guardrail** — so they produce identical verdicts (verified by a parity test), differing only in *how* the workflow is orchestrated. Selecting between them is a runtime config choice (`ENGINE=...`), never a code change — so the demo, unit tests and CI run fully **without any API key**, while production can flip to the real crew with one environment variable.
 
 ## ✨ Key Features
 
@@ -73,7 +77,7 @@ Both call the **same shared tools** for the hard rules, and both funnel through 
 
 ## 🧰 Tech Stack
 
-**Python 3.11** · **CrewAI** (multi-agent) · **FastAPI** + **Uvicorn** · **Pydantic** · **Docker** (multi-stage) · **Kubernetes** · **GitHub Actions** · **pytest**
+**Python 3.11** · **CrewAI** (multi-agent) · **LangGraph** (state-graph) · **FastAPI** + **Uvicorn** · **Pydantic** · **Docker** (multi-stage) · **Kubernetes** · **GitHub Actions** · **pytest**
 
 ## 🧠 AI / Engineering Decisions
 
@@ -126,6 +130,16 @@ docker run -p 8000:8000 agentic-finance-crew
 kubectl apply -f k8s/        # Deployment (2 replicas, probes, non-root) + Service
 ```
 
+### 🔀 Choosing an engine
+
+Set `ENGINE` (all produce identical verdicts — they differ only in orchestration):
+
+```bash
+ENGINE=local      python run_demo.py     # deterministic, no deps, no key (default)
+ENGINE=langgraph  python run_demo.py     # LangGraph state graph (pip install -e ".[langgraph]")
+ENGINE=crewai     python run_demo.py     # real CrewAI crew (needs a key, see below)
+```
+
 ### 🤖 Enable the real CrewAI crew
 
 ```bash
@@ -141,10 +155,11 @@ pip install -e ".[crewai]"
 
 ## 🗺️ Roadmap
 
-- Add a **LangGraph** orchestrator as a third interchangeable engine (stateful graph).
+- ✅ **LangGraph** orchestrator as a third interchangeable engine (stateful graph) — *done*.
 - Persist the human-review queue + decisions to Postgres as a system-of-record.
 - Add **eval cases** scoring the crew's rationale quality against the deterministic ground truth.
 - Slack / email approval actions for the human-in-the-loop step.
+- Deploy the FastAPI service (runs key-free in local mode) as a public live demo.
 
 ---
 

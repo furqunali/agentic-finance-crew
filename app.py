@@ -33,8 +33,7 @@ class ExpenseIn(BaseModel):
 
 @app.get("/health")
 def health() -> dict[str, Any]:
-    s = Settings.from_env()
-    return {"status": "ok", "engine": "crewai" if s.can_run_crewai else "local"}
+    return {"status": "ok", "engine": Settings.from_env().active_engine}
 
 
 @app.post("/approve")

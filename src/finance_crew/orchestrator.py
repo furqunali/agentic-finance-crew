@@ -1,10 +1,12 @@
 """Orchestrator strategy interface + factory.
 
-Two interchangeable engines implement the same `process()` contract:
+Three interchangeable engines implement the same `process()` contract:
 
-* LocalOrchestrator  — deterministic, zero-dependency, no API key. Powers the
+* LocalOrchestrator     — deterministic, zero-dependency, no API key. Powers the
   demo, the tests and CI.
-* CrewAIOrchestrator — the real multi-agent CrewAI crew (opt-in, needs a key).
+* LangGraphOrchestrator — the same workflow as a stateful LangGraph state graph
+  (no LLM required, so also fully testable).
+* CrewAIOrchestrator    — the real multi-agent CrewAI crew (opt-in, needs a key).
 
 Selecting between them is a runtime decision, never a code change — the
 classic Strategy pattern. Callers depend only on this module.
@@ -25,13 +27,27 @@ class Orchestrator(Protocol):
 
 
 def build_orchestrator(settings: Settings | None = None) -> Orchestrator:
-    """Return the real crew when opted-in and keyed; otherwise the local engine."""
+    """Pick an engine from settings.engine (all heavy deps imported lazily).
+
+    * "langgraph"      -> LangGraphOrchestrator (no key needed)
+    * "crewai"         -> CrewAIOrchestrator    (needs a key)
+    * "local"          -> LocalOrchestrator
+    * "auto" (default) -> the real crew if opted-in and keyed, else local
+    """
     settings = settings or Settings.from_env()
-    if settings.can_run_crewai:
+    engine = settings.engine
+
+    if engine == "langgraph":
+        from .langgraph_orchestrator import LangGraphOrchestrator
+
+        return LangGraphOrchestrator(settings)
+
+    if engine == "crewai" or (engine == "auto" and settings.can_run_crewai):
         # Imported lazily so the package (and CI) never require crewai/an LLM.
         from .crew import CrewAIOrchestrator
 
         return CrewAIOrchestrator(settings)
+
     from .local_orchestrator import LocalOrchestrator
 
     return LocalOrchestrator(settings)

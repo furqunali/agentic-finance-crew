@@ -35,6 +35,7 @@ class SpendPolicy:
 class Settings:
     """Which engine to run and how to reach the LLM (real mode only)."""
 
+    engine: str = "auto"                  # "auto" | "local" | "langgraph" | "crewai"
     use_crewai: bool = False
     llm_provider: str = "openai"          # "openai" | "gemini"
     model: str = "gpt-4o-mini"
@@ -47,6 +48,7 @@ class Settings:
         key_env = "GEMINI_API_KEY" if provider == "gemini" else "OPENAI_API_KEY"
         use_crewai = os.getenv("USE_CREWAI", "false").lower() in {"1", "true", "yes"}
         return cls(
+            engine=os.getenv("ENGINE", "auto").lower(),
             use_crewai=use_crewai,
             llm_provider=provider,
             model=os.getenv("LLM_MODEL", "gemini-1.5-flash" if provider == "gemini" else "gpt-4o-mini"),
@@ -57,3 +59,10 @@ class Settings:
     def can_run_crewai(self) -> bool:
         """Real crew needs both the opt-in flag and a key present."""
         return self.use_crewai and bool(self.api_key)
+
+    @property
+    def active_engine(self) -> str:
+        """The engine that will actually run, for display/health purposes."""
+        if self.engine in {"local", "langgraph", "crewai"}:
+            return self.engine
+        return "crewai" if self.can_run_crewai else "local"
