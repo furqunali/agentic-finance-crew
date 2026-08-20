@@ -2,7 +2,10 @@
 
 *A multi-agent **CrewAI** system that triages finance/ops expense requests — Intake → Policy Analyst → Approving Manager — with a deterministic policy guardrail and human-in-the-loop escalation.*
 
+### 🔗 [**Live interactive demo »**](https://agentic-finance-crew-deploy.vercel.app)  ·  [Source](https://github.com/furqunali/agentic-finance-crew)
+
 <p>
+  <a href="https://agentic-finance-crew-deploy.vercel.app"><img src="https://img.shields.io/badge/🟢_Live_Demo-0d9488?style=flat-square" alt="Live demo"></a>
   <img src="https://img.shields.io/badge/CrewAI-multi--agent-0d9488?style=flat-square" alt="CrewAI">
   <img src="https://img.shields.io/badge/LangGraph-state--graph-1c3d5a?style=flat-square" alt="LangGraph">
   <img src="https://img.shields.io/badge/FastAPI-service-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI">
