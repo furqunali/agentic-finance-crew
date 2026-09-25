@@ -24,6 +24,7 @@ COPY --from=builder /opt/venv /opt/venv
 COPY src/ ./src/
 COPY app.py run_demo.py ./
 COPY sample_data/ ./sample_data/
+COPY web/ ./web/
 # Alembic config + migrations so the container can run `alembic upgrade head`
 # against the production database on deploy.
 COPY alembic.ini ./

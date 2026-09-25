@@ -11,15 +11,16 @@ The CrewAI path fails fast with a clear message when opted-in but unkeyed.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
-import time
-
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -88,6 +89,19 @@ def metrics() -> Response:
     """Prometheus metrics (scrape target). Unauthenticated, like /health."""
     body, content_type = observability.metrics_response_body()
     return Response(content=body, media_type=content_type)
+
+
+@app.get("/", include_in_schema=False)
+def root() -> RedirectResponse:
+    """Send the bare host to the web console."""
+    return RedirectResponse(url="/ui/")
+
+
+# Serve the self-contained web console (SPA) at /ui. It talks to the API above
+# with the JWT from /auth/login. Mounted last so it never shadows API routes.
+_WEB_DIR = Path(__file__).parent / "web"
+if _WEB_DIR.is_dir():
+    app.mount("/ui", StaticFiles(directory=str(_WEB_DIR), html=True), name="ui")
 
 # Guard against unbounded batches turning into a denial-of-service.
 MAX_BATCH_SIZE = 500
