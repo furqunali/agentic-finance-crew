@@ -231,6 +231,12 @@ adapts to the signed-in user's role.
 uvicorn app:app --port 8000     # then open http://localhost:8000/  ->  /ui
 ```
 
+> **Windows one-click:** double-click **`START.cmd`** in the project folder — it
+> installs dependencies on first run, starts the server, and opens the console
+> in your browser. Log in with `admin` / `admin` on first run. (The UI must be
+> served by the app — opening `web/index.html` directly as a file won't work,
+> because it needs the backend API.)
+
 - **Login** and a role-aware sidebar (Employee / Finance Manager / Auditor / Admin).
 - **Submit** a single expense and see the decision card (risk, rationale, rules fired).
 - **Bulk upload (CSV)** — drop or paste a spreadsheet, decide the whole batch, and **export the results** as CSV.

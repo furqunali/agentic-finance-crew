@@ -7,6 +7,9 @@
 *.sqlite
 *.sqlite3
 
+# START.cmd first-run marker
+.setup_done
+
 # Python
 __pycache__/
 *.py[cod]
