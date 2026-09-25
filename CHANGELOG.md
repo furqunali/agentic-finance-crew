@@ -7,6 +7,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Observability.**
+  - Prometheus metrics at `GET /metrics`: decisions by outcome/engine, human
+    resolutions, per-decision latency histogram, HTTP throughput + latency
+    (paths normalized), failure counter, and LLM token/cost counters.
+  - Per-decision `latency_ms`, `tokens` and `cost_usd` persisted on every record
+    (Alembic `0004_observability`); deterministic engines report 0 tokens/cost,
+    the real crew reports actual usage (priced via a small per-model table).
+  - Structured JSON logging (`LOG_FORMAT=json`) + `LOG_LEVEL`; an HTTP
+    middleware records request metrics; K8s `Deployment` gains
+    `prometheus.io/scrape` annotations.
 - **Authentication & RBAC.**
   - JWT bearer-token auth (`/auth/login`, `/auth/me`) with a `users` table and
     salted **PBKDF2** password hashing (stdlib only — no bcrypt/argon2 wheels).

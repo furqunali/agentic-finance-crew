@@ -15,13 +15,15 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+import time
+
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from finance_crew import repository
+from finance_crew import observability, repository
 from finance_crew.auth import (
     CAN_ADMIN,
     CAN_AUDIT,
@@ -44,9 +46,10 @@ logger = logging.getLogger("finance_crew.api")
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Ensure the schema exists and a bootstrap admin is present on startup.
-    Fine for SQLite/dev/CI; production on Postgres runs Alembic migrations, and
-    these calls are harmless idempotent no-ops there."""
+    """Configure logging, ensure the schema exists and a bootstrap admin is
+    present on startup. Fine for SQLite/dev/CI; production on Postgres runs
+    Alembic migrations, and these calls are harmless idempotent no-ops there."""
+    observability.configure_logging()
     init_db()
     with session_scope() as session:
         ensure_admin_seed(session)
@@ -59,6 +62,32 @@ app = FastAPI(
     description="Multi-agent expense-approval crew (CrewAI) with a policy guardrail.",
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def _metrics_middleware(request: Request, call_next):
+    """Count every HTTP request and record its latency (paths normalized so
+    metric cardinality stays bounded); tally 5xx as failures."""
+    path = observability.normalize_path(request.url.path)
+    start = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        observability.FAILURES.labels("unhandled").inc()
+        observability.HTTP_REQUESTS.labels(request.method, path, "500").inc()
+        raise
+    observability.HTTP_LATENCY.labels(request.method, path).observe(time.perf_counter() - start)
+    observability.HTTP_REQUESTS.labels(request.method, path, str(response.status_code)).inc()
+    if response.status_code >= 500:
+        observability.FAILURES.labels("http_5xx").inc()
+    return response
+
+
+@app.get("/metrics")
+def metrics() -> Response:
+    """Prometheus metrics (scrape target). Unauthenticated, like /health."""
+    body, content_type = observability.metrics_response_body()
+    return Response(content=body, media_type=content_type)
 
 # Guard against unbounded batches turning into a denial-of-service.
 MAX_BATCH_SIZE = 500

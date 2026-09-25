@@ -13,7 +13,8 @@
   <img src="https://img.shields.io/badge/Kubernetes-ready-326CE5?style=flat-square&logo=kubernetes&logoColor=white" alt="Kubernetes">
   <img src="https://img.shields.io/badge/PostgreSQL-persisted-336791?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL">
   <img src="https://img.shields.io/badge/Auth-JWT%20%2B%20RBAC-000000?style=flat-square&logo=jsonwebtokens&logoColor=white" alt="JWT + RBAC">
-  <img src="https://img.shields.io/badge/tests-57%20passing-2ea44f?style=flat-square" alt="tests">
+  <img src="https://img.shields.io/badge/Observability-Prometheus-E6522C?style=flat-square&logo=prometheus&logoColor=white" alt="Prometheus">
+  <img src="https://img.shields.io/badge/tests-62%20passing-2ea44f?style=flat-square" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT">
 </p>
 
@@ -81,6 +82,7 @@ All three call the **same shared tools** for the hard rules, and all funnel thro
 - **Durable system-of-record** — every decision is persisted via SQLAlchemy with Alembic migrations; runs on zero-config **SQLite** in dev and **PostgreSQL** in production by flipping one env var.
 - **Immutable audit trail** — each decision logs the full lifecycle (who requested it → what the AI recommended → which rules fired → who approved it → timestamps, reason, model/version). The machine verdict is never overwritten by a human resolution.
 - **Auth & RBAC** — JWT bearer tokens with four roles (**Employee / Finance Manager / Auditor / Admin**); the approver's identity comes from the token, not the request body.
+- **Observability** — Prometheus metrics at `/metrics` (decisions, latency, HTTP, failures, LLM tokens/cost), structured JSON logging, and per-decision latency / token / cost stored on every record.
 - **Runs with zero secrets** via the local engine — great for demos, CI and offline dev.
 - **FastAPI service** (`/auth/*`, `/approve`, `/approve/batch`, `/decisions`, `/review-queue`, `/audit`, `/health`) with OpenAPI docs at `/docs`.
 - **Fully containerized** (multi-stage, non-root, healthcheck) and **Kubernetes-ready**.
@@ -88,7 +90,7 @@ All three call the **same shared tools** for the hard rules, and all funnel thro
 
 ## 🧰 Tech Stack
 
-**Python 3.11** · **CrewAI** (multi-agent) · **LangGraph** (state-graph) · **FastAPI** + **Uvicorn** · **Pydantic** · **JWT (PyJWT) + RBAC** · **SQLAlchemy 2.0** + **Alembic** · **PostgreSQL** / **SQLite** · **Docker** (multi-stage) · **Kubernetes** · **GitHub Actions** · **pytest**
+**Python 3.11** · **CrewAI** (multi-agent) · **LangGraph** (state-graph) · **FastAPI** + **Uvicorn** · **Pydantic** · **JWT (PyJWT) + RBAC** · **SQLAlchemy 2.0** + **Alembic** · **PostgreSQL** / **SQLite** · **Prometheus** metrics · **Docker** (multi-stage) · **Kubernetes** · **GitHub Actions** · **pytest**
 
 ## 🧠 AI / Engineering Decisions
 
@@ -122,7 +124,7 @@ cd agentic-finance-crew
 pip install -e ".[dev]"
 
 python run_demo.py          # run the crew over the sample batch (no key needed)
-pytest -q                   # 57 tests, all green
+pytest -q                   # 62 tests, all green
 uvicorn app:app --reload    # API at http://localhost:8000/docs
 ```
 
@@ -171,6 +173,8 @@ engine or enable the real crew.
 | `DATABASE_URL`   | `sqlite:///./finance_crew.db` | `postgresql+psycopg://user:pass@host/db` | Where decisions are persisted. SQLite by default; point at Postgres for production (`pip install -e ".[postgres]"`). |
 | `JWT_SECRET`     | _(ephemeral)_  | long random string                        | Signing secret for JWT tokens. **Set in production** (unset ⇒ per-process dev secret, tokens don't survive restarts). |
 | `JWT_EXPIRE_MINUTES` | `60`       | integer                                   | Access-token lifetime in minutes. |
+| `LOG_FORMAT`     | `text`         | `text` · `json`                           | `json` emits structured logs for a log platform. |
+| `LOG_LEVEL`      | `INFO`         | `DEBUG` · `INFO` · `WARNING` · …          | Root log level. |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin` / `admin` | any                    | Bootstrap admin created on first run against an empty user table. **Change these.** |
 | `ENGINE`         | `auto`         | `auto` · `local` · `langgraph` · `crewai` | Which orchestrator runs. `auto` picks the real crew if opted-in **and** keyed, otherwise `local`. |
 | `USE_CREWAI`     | `false`        | `true` / `false`                          | Opt-in flag for the real CrewAI crew (needs a key too). |
@@ -308,7 +312,7 @@ curl -s "http://localhost:8000/audit?step=final_action&limit=50"
 
 ```bash
 pip install -e ".[dev]"      # pytest + httpx + langgraph
-pytest -q                    # 57 tests: domain logic, API, engines, persistence, audit, auth/RBAC, error paths
+pytest -q                    # 62 tests: domain logic, API, engines, persistence, audit, auth/RBAC, observability, error paths
 python run_demo.py           # end-to-end CLI smoke test over the sample batch
 ```
 
@@ -316,6 +320,38 @@ The suite covers the deterministic policy tools, the LangGraph↔local **parity*
 guarantee, the FastAPI endpoints (happy path + validation/edge cases), and the
 engine misconfiguration paths — all key-free. CI runs the same on Python
 3.10–3.12 plus a Docker build and `/health` check.
+
+## 📊 Observability
+
+The service is instrumented so it can be run and watched like a real production
+system — not just demoed.
+
+- **Prometheus metrics** at `GET /metrics` (unauthenticated scrape target):
+
+  | Metric | Type | What it tracks |
+  |--------|------|----------------|
+  | `afc_decisions_total{decision,engine}` | counter | Decisions by outcome and engine |
+  | `afc_resolutions_total{action}` | counter | Human approve/reject actions |
+  | `afc_decision_latency_seconds` | histogram | Per-decision processing latency |
+  | `afc_http_requests_total{method,path,status}` | counter | HTTP throughput (paths normalized) |
+  | `afc_http_request_latency_seconds{method,path}` | histogram | HTTP latency |
+  | `afc_failures_total{kind}` | counter | Failure rate (5xx / unhandled) |
+  | `afc_llm_tokens_total{engine}` · `afc_llm_cost_usd_total{engine}` | counter | LLM tokens & cost (real crew) |
+
+- **Per-decision signals persisted** on every record: `latency_ms`, `tokens`,
+  `cost_usd`. Deterministic engines use no LLM, so their tokens/cost are
+  genuinely `0`; the real CrewAI engine reports actual usage (priced via a
+  small per-model table).
+- **Structured logging** — set `LOG_FORMAT=json` for machine-readable logs
+  (timestamp, level, logger, message + any structured fields), `LOG_LEVEL` to
+  tune verbosity.
+
+```bash
+curl -s http://localhost:8000/metrics | grep afc_decisions_total
+```
+
+The Kubernetes `Deployment` carries `prometheus.io/scrape` annotations so a
+cluster Prometheus picks the endpoint up automatically.
 
 ## 🚢 Deployment
 
@@ -339,7 +375,7 @@ engine misconfiguration paths — all key-free. CI runs the same on Python
 - ✅ **Persist decisions to a database** (SQLAlchemy + Alembic; SQLite dev / Postgres prod) as a system-of-record — *done*.
 - ✅ **Immutable audit trail + human-review queue** (who approved, rules fired, model/version; approve/reject workflow) — *done*.
 - ✅ **Authentication & RBAC** (JWT; Employee / Finance Manager / Auditor / Admin) gating every action — *done*.
-- **Observability** — structured logs, Prometheus metrics, per-decision latency / token-usage / model-cost / failure-rate.
+- ✅ **Observability** — Prometheus metrics, structured logs, per-decision latency / token / cost / failure-rate — *done*.
 - **Evaluation benchmark** — 500–1,000 synthetic cases scoring accuracy, violation/duplicate detection, false approve/reject, escalation rate, latency & cost.
 - Add **eval cases** scoring the crew's rationale quality against the deterministic ground truth.
 - Slack / email approval actions for the human-in-the-loop step.

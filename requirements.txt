@@ -13,6 +13,9 @@ alembic>=1.13
 PyJWT>=2.8
 python-multipart>=0.0.9
 
+# Observability: Prometheus metrics exposed at /metrics.
+prometheus-client>=0.20
+
 # PostgreSQL driver (optional) — only needed when DATABASE_URL points at Postgres.
 # psycopg[binary]>=3.1
 
