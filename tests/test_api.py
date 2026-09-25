@@ -10,8 +10,11 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 from app import app
+from conftest import bearer
 
-client = TestClient(app)
+# Default to an admin token so these endpoint tests exercise the happy paths;
+# dedicated RBAC/auth behavior is covered in test_auth.py.
+client = TestClient(app, headers=bearer("admin"))
 
 
 def test_health_reports_engine():

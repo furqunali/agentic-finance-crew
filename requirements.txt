@@ -8,6 +8,11 @@ pydantic>=2.6
 SQLAlchemy>=2.0
 alembic>=1.13
 
+# Auth: JWT bearer tokens + form parsing for the OAuth2 password login.
+# Password hashing uses only the Python stdlib (PBKDF2) — no bcrypt/argon2 wheels.
+PyJWT>=2.8
+python-multipart>=0.0.9
+
 # PostgreSQL driver (optional) — only needed when DATABASE_URL points at Postgres.
 # psycopg[binary]>=3.1
 
