@@ -13,13 +13,16 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
+from finance_crew import repository
 from finance_crew.config import Settings
+from finance_crew.db import get_session, init_db
 from finance_crew.errors import ConfigurationError, ValidationError
-from finance_crew.pipeline import process_batch, process_request
+from finance_crew.service import decide_and_store, decide_and_store_batch
 
 logger = logging.getLogger("finance_crew.api")
 
@@ -28,6 +31,13 @@ app = FastAPI(
     version="1.0.0",
     description="Multi-agent expense-approval crew (CrewAI) with a policy guardrail.",
 )
+
+
+@app.on_event("startup")
+def _startup() -> None:
+    """Ensure the schema exists. Fine for SQLite/dev/CI; production on Postgres
+    runs Alembic migrations, and this call is a harmless idempotent no-op there."""
+    init_db()
 
 # Guard against unbounded batches turning into a denial-of-service.
 MAX_BATCH_SIZE = 500
@@ -72,9 +82,12 @@ def health() -> dict[str, Any]:
 
 
 @app.post("/approve")
-def approve(expense: ExpenseIn) -> dict[str, Any]:
+def approve(expense: ExpenseIn, session: Session = Depends(get_session)) -> dict[str, Any]:
     try:
-        return process_request(expense.model_dump()).to_dict()
+        result, record_id = decide_and_store(session, expense.model_dump())
+        payload = result.to_dict()
+        payload["record_id"] = record_id  # link the verdict to its stored row
+        return payload
     except (ConfigurationError, ValidationError):
         raise  # handled by the dedicated exception handlers above
     except Exception as exc:  # pragma: no cover - defensive last line
@@ -86,7 +99,9 @@ def approve(expense: ExpenseIn) -> dict[str, Any]:
 
 
 @app.post("/approve/batch")
-def approve_batch(expenses: list[ExpenseIn]) -> list[dict[str, Any]]:
+def approve_batch(
+    expenses: list[ExpenseIn], session: Session = Depends(get_session)
+) -> list[dict[str, Any]]:
     if not expenses:
         raise HTTPException(
             status_code=422,
@@ -100,7 +115,13 @@ def approve_batch(expenses: list[ExpenseIn]) -> list[dict[str, Any]]:
             )["error"],
         )
     try:
-        return [r.to_dict() for r in process_batch([e.model_dump() for e in expenses])]
+        stored = decide_and_store_batch(session, [e.model_dump() for e in expenses])
+        out = []
+        for result, record_id in stored:
+            payload = result.to_dict()
+            payload["record_id"] = record_id
+            out.append(payload)
+        return out
     except ConfigurationError:
         raise
     except Exception as exc:  # pragma: no cover - defensive last line
@@ -109,3 +130,36 @@ def approve_batch(expenses: list[ExpenseIn]) -> list[dict[str, Any]]:
             status_code=500,
             detail=_error_payload(500, "failed to process expense batch", str(exc))["error"],
         ) from exc
+
+
+@app.get("/decisions")
+def list_decisions(
+    session: Session = Depends(get_session),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    decision: str | None = Query(None, description="Filter by decision value"),
+    employee: str | None = Query(None, description="Filter by employee"),
+) -> dict[str, Any]:
+    """Paginated history of persisted decisions (newest first)."""
+    rows = repository.list_decisions(
+        session, limit=limit, offset=offset, decision=decision, employee=employee
+    )
+    return {
+        "total": repository.count_decisions(session, decision=decision),
+        "count": len(rows),
+        "limit": limit,
+        "offset": offset,
+        "items": [r.to_dict() for r in rows],
+    }
+
+
+@app.get("/decisions/{record_id}")
+def get_decision(record_id: int, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """Fetch a single persisted decision by its stored id."""
+    record = repository.get_decision(session, record_id)
+    if record is None:
+        raise HTTPException(
+            status_code=404,
+            detail=_error_payload(404, f"no decision with id {record_id}")["error"],
+        )
+    return record.to_dict()

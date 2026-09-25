@@ -2,6 +2,11 @@
 .env
 *.key
 
+# Local SQLite database files (dev/demo system-of-record)
+*.db
+*.sqlite
+*.sqlite3
+
 # Python
 __pycache__/
 *.py[cod]

@@ -7,6 +7,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Persistence layer (database).** Every decision served over the API is now
+  written to a durable system-of-record:
+  - SQLAlchemy 2.0 ORM (`DecisionRecord`) with a repository layer and a
+    transactional `session_scope()` unit-of-work (commit on success, rollback
+    on error).
+  - Single `DATABASE_URL` switch: zero-config **SQLite** for dev/CI/demo,
+    **PostgreSQL** (`postgresql+psycopg://…`) for production via the
+    `[postgres]` extra — no code changes.
+  - **Alembic** migration system (`alembic upgrade head`), an initial
+    migration, and a migration-capable Docker image.
+  - New read API: `GET /decisions` (paginated, filterable by decision/employee)
+    and `GET /decisions/{id}`; `/approve` responses now include the stored
+    `record_id`.
+  - Tests for repository round-trips, transaction rollback, the new endpoints,
+    and an Alembic upgrade; a dedicated **Postgres integration CI job**.
 - Hardened error handling across the API and engines: structured JSON error
   payloads, non-empty/`id`/`employee` validation, an empty-batch `422`, a
   batch-size cap, and a clear `ConfigurationError` when `ENGINE=crewai` is set
