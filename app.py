@@ -21,8 +21,8 @@ from sqlalchemy.orm import Session
 from finance_crew import repository
 from finance_crew.config import Settings
 from finance_crew.db import get_session, init_db
-from finance_crew.errors import ConfigurationError, ValidationError
-from finance_crew.service import decide_and_store, decide_and_store_batch
+from finance_crew.errors import ConfigurationError, ConflictError, NotFoundError, ValidationError
+from finance_crew.service import decide_and_store, decide_and_store_batch, resolve_decision
 
 logger = logging.getLogger("finance_crew.api")
 
@@ -54,6 +54,13 @@ class ExpenseIn(BaseModel):
     date: str = ""
 
 
+class ResolutionIn(BaseModel):
+    """A human reviewer's decision on an item in the review queue."""
+
+    actor: str = Field(..., min_length=1, examples=["m.khan (Finance Manager)"])
+    note: str = Field("", examples=["Verified receipt with vendor; approved."])
+
+
 def _error_payload(status: int, message: str, detail: str | None = None) -> dict[str, Any]:
     body: dict[str, Any] = {"error": {"status": status, "message": message}}
     if detail:
@@ -76,18 +83,38 @@ def _handle_validation_error(_request: Any, exc: ValidationError) -> JSONRespons
     return JSONResponse(status_code=422, content=_error_payload(422, str(exc)))
 
 
+@app.exception_handler(NotFoundError)
+def _handle_not_found(_request: Any, exc: NotFoundError) -> JSONResponse:
+    return JSONResponse(status_code=404, content=_error_payload(404, str(exc)))
+
+
+@app.exception_handler(ConflictError)
+def _handle_conflict(_request: Any, exc: ConflictError) -> JSONResponse:
+    """Resolving a decision that isn't awaiting review -> 409 Conflict."""
+    logger.info("conflict: %s", exc)
+    return JSONResponse(status_code=409, content=_error_payload(409, str(exc)))
+
+
 @app.get("/health")
 def health() -> dict[str, Any]:
     return {"status": "ok", "engine": Settings.from_env().active_engine}
 
 
+def _serialize(session: Session, record_id: int) -> dict[str, Any]:
+    """Return the stored record (status, audit fields, model/version …) with a
+    convenience ``record_id`` alias alongside its primary key."""
+    record = repository.get_decision(session, record_id)
+    assert record is not None  # just written in this transaction
+    payload = record.to_dict()
+    payload["record_id"] = record.id
+    return payload
+
+
 @app.post("/approve")
 def approve(expense: ExpenseIn, session: Session = Depends(get_session)) -> dict[str, Any]:
     try:
-        result, record_id = decide_and_store(session, expense.model_dump())
-        payload = result.to_dict()
-        payload["record_id"] = record_id  # link the verdict to its stored row
-        return payload
+        _result, record_id = decide_and_store(session, expense.model_dump())
+        return _serialize(session, record_id)
     except (ConfigurationError, ValidationError):
         raise  # handled by the dedicated exception handlers above
     except Exception as exc:  # pragma: no cover - defensive last line
@@ -116,12 +143,7 @@ def approve_batch(
         )
     try:
         stored = decide_and_store_batch(session, [e.model_dump() for e in expenses])
-        out = []
-        for result, record_id in stored:
-            payload = result.to_dict()
-            payload["record_id"] = record_id
-            out.append(payload)
-        return out
+        return [_serialize(session, record_id) for _result, record_id in stored]
     except ConfigurationError:
         raise
     except Exception as exc:  # pragma: no cover - defensive last line
@@ -163,3 +185,59 @@ def get_decision(record_id: int, session: Session = Depends(get_session)) -> dic
             detail=_error_payload(404, f"no decision with id {record_id}")["error"],
         )
     return record.to_dict()
+
+
+# --- Human-in-the-loop review workflow --------------------------------------
+@app.get("/review-queue")
+def review_queue(
+    session: Session = Depends(get_session),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+) -> dict[str, Any]:
+    """Decisions awaiting a human sign-off (oldest first)."""
+    rows = repository.list_review_queue(session, limit=limit, offset=offset)
+    return {"count": len(rows), "items": [r.to_dict() for r in rows]}
+
+
+@app.post("/decisions/{record_id}/approve")
+def approve_decision(
+    record_id: int, body: ResolutionIn, session: Session = Depends(get_session)
+) -> dict[str, Any]:
+    """A human approves an item in the review queue."""
+    record = resolve_decision(session, record_id, "approve", body.actor, body.note)
+    return record.to_dict()
+
+
+@app.post("/decisions/{record_id}/reject")
+def reject_decision(
+    record_id: int, body: ResolutionIn, session: Session = Depends(get_session)
+) -> dict[str, Any]:
+    """A human rejects an item in the review queue."""
+    record = resolve_decision(session, record_id, "reject", body.actor, body.note)
+    return record.to_dict()
+
+
+# --- Audit trail ------------------------------------------------------------
+@app.get("/decisions/{record_id}/audit")
+def decision_audit(record_id: int, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """The full, ordered audit trail for one decision."""
+    record = repository.get_decision(session, record_id)
+    if record is None:
+        raise HTTPException(
+            status_code=404,
+            detail=_error_payload(404, f"no decision with id {record_id}")["error"],
+        )
+    events = repository.get_audit_events(session, record_id)
+    return {"decision": record.to_dict(), "trail": [e.to_dict() for e in events]}
+
+
+@app.get("/audit")
+def audit_log(
+    session: Session = Depends(get_session),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    step: str | None = Query(None, description="Filter by lifecycle step"),
+) -> dict[str, Any]:
+    """Global append-only audit log across all decisions (newest first)."""
+    events = repository.list_audit_events(session, limit=limit, offset=offset, step=step)
+    return {"count": len(events), "items": [e.to_dict() for e in events]}

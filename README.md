@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/Docker-containerized-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker">
   <img src="https://img.shields.io/badge/Kubernetes-ready-326CE5?style=flat-square&logo=kubernetes&logoColor=white" alt="Kubernetes">
   <img src="https://img.shields.io/badge/PostgreSQL-persisted-336791?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL">
-  <img src="https://img.shields.io/badge/tests-38%20passing-2ea44f?style=flat-square" alt="tests">
+  <img src="https://img.shields.io/badge/tests-47%20passing-2ea44f?style=flat-square" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT">
 </p>
 
@@ -58,7 +58,8 @@ flowchart TD
     G --> R2[Human review queue]
     G --> R3[Rejected]
 
-    R1 & R2 & R3 --> DB[(Decision store<br/>SQLAlchemy + Alembic<br/>SQLite dev · Postgres prod)]
+    R2 --> H{Human reviewer<br/>approve / reject}
+    R1 & R3 & H --> DB[(Decision store + audit trail<br/>SQLAlchemy + Alembic<br/>SQLite dev · Postgres prod)]
 
     T[(Shared deterministic tools<br/>policy · risk · duplicate)] -.-> S1 & S2 & S3
 ```
@@ -75,10 +76,11 @@ All three call the **same shared tools** for the hard rules, and all funnel thro
 
 - **Multi-agent orchestration** with CrewAI (sequential Intake → Analyst → Approver crew).
 - **Policy-as-code guardrail** — spend limits, receipt rules, per-category limits and duplicate detection live in tested code, not in prompts.
-- **Human-in-the-loop** routing for anything over-limit, non-compliant or high-risk.
+- **Human-in-the-loop** routing for anything over-limit, non-compliant or high-risk — with a **review queue** and human approve/reject actions.
 - **Durable system-of-record** — every decision is persisted via SQLAlchemy with Alembic migrations; runs on zero-config **SQLite** in dev and **PostgreSQL** in production by flipping one env var.
+- **Immutable audit trail** — each decision logs the full lifecycle (who requested it → what the AI recommended → which rules fired → who approved it → timestamps, reason, model/version). The machine verdict is never overwritten by a human resolution.
 - **Runs with zero secrets** via the local engine — great for demos, CI and offline dev.
-- **FastAPI service** (`/approve`, `/approve/batch`, `/decisions`, `/health`) with OpenAPI docs at `/docs`.
+- **FastAPI service** (`/approve`, `/approve/batch`, `/decisions`, `/review-queue`, `/audit`, `/health`) with OpenAPI docs at `/docs`.
 - **Fully containerized** (multi-stage, non-root, healthcheck) and **Kubernetes-ready**.
 - **CI on every push** — tests across Python 3.10–3.12 + a Docker build/health check.
 
@@ -118,7 +120,7 @@ cd agentic-finance-crew
 pip install -e ".[dev]"
 
 python run_demo.py          # run the crew over the sample batch (no key needed)
-pytest -q                   # 38 tests, all green
+pytest -q                   # 47 tests, all green
 uvicorn app:app --reload    # API at http://localhost:8000/docs
 ```
 
@@ -227,11 +229,46 @@ migration after changing a model with `make migration m="describe change"`.
 The persistence layer is engine-agnostic — the same code and tests run on both
 SQLite and Postgres (a dedicated CI job proves the Postgres path end-to-end).
 
+## 🧾 Audit trail & human review
+
+Governed spend needs to answer *"who approved this, on what basis, and when?"*
+Every decision therefore carries an **append-only audit trail** and a
+human-in-the-loop workflow:
+
+- **What's recorded per decision** — who requested it, what the AI
+  **recommended**, which **rules fired**, the risk score, the **final action**,
+  who resolved it, timestamps, the reason, and the **model/version** that
+  decided (`engine@app-version`, e.g. `local@1.0.0`).
+- **Lifecycle** mirrors the pipeline as ordered audit events:
+  `request_received → ai_reasoning → policy_evaluation → decision`
+  (→ `human_review → final_action` for review items).
+- **Immutability** — a human approve/reject is layered on via `status` /
+  `resolved_by` / `resolved_at`; the original machine verdict
+  (`decision`, `ai_recommendation`) is **never overwritten**, so the record
+  always shows *what the AI said* vs *what the human decided*.
+
+```bash
+# The review queue — decisions awaiting a human (oldest first)
+curl -s http://localhost:8000/review-queue
+
+# A Finance Manager approves item #7
+curl -s -X POST http://localhost:8000/decisions/7/approve \
+  -H "Content-Type: application/json" \
+  -d '{"actor":"m.khan (Finance Manager)","note":"Receipt verified with vendor."}'
+#   -> 200; status "human_approved", final_action "approved"
+#   Approving an auto-decided item returns 409 (it isn't awaiting review).
+
+# The full audit trail for one decision …
+curl -s http://localhost:8000/decisions/7/audit
+# … and the global append-only log across all decisions
+curl -s "http://localhost:8000/audit?step=final_action&limit=50"
+```
+
 ## 🧪 Testing
 
 ```bash
 pip install -e ".[dev]"      # pytest + httpx + langgraph
-pytest -q                    # 38 tests: domain logic, API, engines, persistence, error paths
+pytest -q                    # 47 tests: domain logic, API, engines, persistence, audit, error paths
 python run_demo.py           # end-to-end CLI smoke test over the sample batch
 ```
 
@@ -259,7 +296,8 @@ engine misconfiguration paths — all key-free. CI runs the same on Python
 
 - ✅ **LangGraph** orchestrator as a third interchangeable engine (stateful graph) — *done*.
 - ✅ **Persist decisions to a database** (SQLAlchemy + Alembic; SQLite dev / Postgres prod) as a system-of-record — *done*.
-- Persist the human-review queue with full audit trail (who approved, rules fired, model/version).
+- ✅ **Immutable audit trail + human-review queue** (who approved, rules fired, model/version; approve/reject workflow) — *done*.
+- **Authentication & RBAC** (JWT; Employee / Finance Manager / Auditor / Admin) gating the review actions.
 - Add **eval cases** scoring the crew's rationale quality against the deterministic ground truth.
 - Slack / email approval actions for the human-in-the-loop step.
 - Deploy the FastAPI service (runs key-free in local mode) as a public live demo.

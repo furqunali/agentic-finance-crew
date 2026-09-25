@@ -136,6 +136,7 @@ def test_alembic_upgrade_head_builds_schema(tmp_path):
         finally:
             engine.dispose()
         assert "decisions" in tables
+        assert "audit_events" in tables  # 0002 audit-trail migration applied
     finally:
         if prev is None:
             os.environ.pop("DATABASE_URL", None)

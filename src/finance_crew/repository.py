@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .models import ApprovalResult, ExpenseRequest
-from .records import DecisionRecord
+from .records import AuditEvent, DecisionRecord, Status
 
 
 def save_decision(session: Session, request: ExpenseRequest, result: ApprovalResult) -> DecisionRecord:
@@ -60,3 +60,47 @@ def count_decisions(session: Session, *, decision: str | None = None) -> int:
     if decision:
         stmt = stmt.where(DecisionRecord.decision == decision)
     return int(session.scalar(stmt) or 0)
+
+
+def list_review_queue(session: Session, *, limit: int = 50, offset: int = 0) -> list[DecisionRecord]:
+    """Decisions awaiting a human sign-off, oldest first (FIFO queue)."""
+    stmt = (
+        select(DecisionRecord)
+        .where(DecisionRecord.status == Status.PENDING_REVIEW)
+        .order_by(DecisionRecord.id.asc())
+        .offset(max(offset, 0))
+        .limit(max(1, min(limit, 500)))
+    )
+    return list(session.scalars(stmt).all())
+
+
+# --- Audit trail -------------------------------------------------------------
+def add_audit_event(
+    session: Session, decision_id: int, step: str, actor: str, detail: str = ""
+) -> AuditEvent:
+    """Append one immutable entry to a decision's audit trail."""
+    event = AuditEvent(decision_id=decision_id, step=step, actor=actor, detail=detail)
+    session.add(event)
+    session.flush()
+    return event
+
+
+def get_audit_events(session: Session, decision_id: int) -> list[AuditEvent]:
+    """The full, ordered audit trail for one decision."""
+    stmt = (
+        select(AuditEvent)
+        .where(AuditEvent.decision_id == decision_id)
+        .order_by(AuditEvent.id.asc())
+    )
+    return list(session.scalars(stmt).all())
+
+
+def list_audit_events(
+    session: Session, *, limit: int = 100, offset: int = 0, step: str | None = None
+) -> list[AuditEvent]:
+    """Global audit log across all decisions, newest first."""
+    stmt = select(AuditEvent).order_by(AuditEvent.id.desc())
+    if step:
+        stmt = stmt.where(AuditEvent.step == step)
+    stmt = stmt.offset(max(offset, 0)).limit(max(1, min(limit, 1000)))
+    return list(session.scalars(stmt).all())
