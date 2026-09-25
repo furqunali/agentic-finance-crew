@@ -24,11 +24,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
       - name: Run test suite
-        run: pytest -q
+        run: |
+          pytest -q | tee pytest_out.txt
+          {
+            echo "## ✅ Test results (Python ${{ matrix.python-version }})";
+            echo '```';
+            tail -n 5 pytest_out.txt;
+            echo '```';
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Smoke-test the CLI demo (local engine, no keys)
         run: python run_demo.py
       - name: Evaluation benchmark — safety gate (0 false approvals)
-        run: python run_eval.py --n 300 --check
+        run: |
+          python run_eval.py --n 300 --check | tee eval_out.txt
+          { echo "## 🧪 Evaluation benchmark"; echo '```'; cat eval_out.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
   postgres:
     name: Postgres integration (migrations + persistence)
