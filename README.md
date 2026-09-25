@@ -5,6 +5,7 @@
 ### 🔗 [**Live interactive demo »**](https://agentic-finance-crew-deploy.vercel.app)  ·  [🤗 Hugging Face Space](https://huggingface.co/spaces/FurqanAli12345/agentic-finance-crew)  ·  [Source](https://github.com/furqunali/agentic-finance-crew)
 
 <p>
+  <a href="https://github.com/furqunali/agentic-finance-crew/actions/workflows/ci.yml"><img src="https://github.com/furqunali/agentic-finance-crew/actions/workflows/ci.yml/badge.svg" alt="CI — tests"></a>
   <a href="https://agentic-finance-crew-deploy.vercel.app"><img src="https://img.shields.io/badge/🟢_Live_Demo-0d9488?style=flat-square" alt="Live demo"></a>
   <img src="https://img.shields.io/badge/CrewAI-multi--agent-0d9488?style=flat-square" alt="CrewAI">
   <img src="https://img.shields.io/badge/LangGraph-state--graph-1c3d5a?style=flat-square" alt="LangGraph">
@@ -416,6 +417,22 @@ The `--check` gate runs in **CI on every push**, so a regression that let the
 system auto-approve something it shouldn't would fail the build. When the real
 CrewAI engine is enabled, the same benchmark scores the crew and surfaces any
 divergence from the policy (plus its real token cost and latency).
+
+## 🔄 Working locally & syncing to GitHub
+
+Every push runs the full suite on **GitHub Actions** (Python 3.10–3.12, a Docker
+build, a Postgres integration job, and the evaluation safety-gate). The **CI
+badge** at the top of this README turns green/red automatically, and each run
+posts a **test-results + benchmark summary** on its Actions page — so the test
+results are always visible on GitHub, not just on your machine.
+
+**One-click sync (Windows):** double-click **`SYNC.cmd`** in the project folder.
+It runs the tests locally, commits your changes, and pushes to GitHub — which
+triggers CI and updates the badge in ~1–2 minutes.
+
+```
+edit / test locally  →  SYNC.cmd  →  GitHub Actions runs tests  →  badge + summary update
+```
 
 ## 🚢 Deployment
 

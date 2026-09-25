@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentic Finance Crew — How to Use</title>
+<style>
+  :root{--navy:#1c3d5a;--teal:#0d9488;--ink:#1f2933;--mut:#5b6b7b;--line:#e2e8f0;--bg:#f7fafc;--warn:#b45309;--ok:#0f7d4d;--no:#b91c1c}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Calibri,"Segoe UI",Arial,sans-serif;color:var(--ink);background:var(--bg);line-height:1.5}
+  .wrap{max-width:900px;margin:0 auto;padding:32px 28px 60px}
+  header{background:linear-gradient(135deg,var(--navy),var(--teal));color:#fff;border-radius:14px;padding:26px 28px;margin-bottom:26px}
+  header h1{margin:0 0 6px;font-size:26px}
+  header p{margin:0;opacity:.92;font-size:14px}
+  h2{color:var(--navy);border-bottom:2px solid var(--line);padding-bottom:6px;margin-top:34px;font-size:20px}
+  h3{color:var(--teal);margin:18px 0 6px;font-size:16px}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#eef4f8;color:var(--navy)}
+  td.c,th.c{text-align:center}
+  code,pre{font-family:"Cascadia Code",Consolas,monospace;font-size:13px}
+  pre{background:#0f1b26;color:#e6edf3;padding:14px 16px;border-radius:10px;overflow-x:auto}
+  code{background:#eef2f6;color:#0b3a55;padding:1px 5px;border-radius:4px}
+  pre code{background:none;color:inherit;padding:0}
+  .yes{color:var(--ok);font-weight:700}.no{color:var(--no);font-weight:700}
+  .callout{border-left:4px solid var(--teal);background:#e8f6f4;padding:12px 16px;border-radius:0 8px 8px 0;margin:14px 0;font-size:14px}
+  .warn{border-left:4px solid var(--warn);background:#fef3e2;padding:12px 16px;border-radius:0 8px 8px 0;margin:14px 0;font-size:14px}
+  ul{margin:8px 0 8px 2px;padding-left:22px}
+  .muted{color:var(--mut);font-size:13px}
+  footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--line);color:var(--mut);font-size:13px}
+  a{color:var(--teal)}
+  @media print{body{background:#fff}.wrap{max-width:100%;padding:0}header{border-radius:0}pre{white-space:pre-wrap}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Agentic Finance Crew — How to Use</h1>
+  <p>AI expense-approval system · Company guide for Sugarland Petroleum · Tip: File → Print → <b>Save as PDF</b></p>
+</header>
+
+<h2>1. What this system is</h2>
+<p>An <b>AI expense/reimbursement approval system</b>. You send it an expense request and it returns a decision:
+<b>AUTO-APPROVED</b> (small, compliant, low-risk), <b>NEEDS HUMAN REVIEW</b> (over limit / breaks a rule / high-risk / possible duplicate → goes to a review queue for a Finance Manager), or <b>REJECTED</b> (invalid).
+Every decision is saved to a database, gets a full <b>audit trail</b>, and is protected by <b>login + roles</b>.</p>
+<div class="callout"><b>Safety by design:</b> the AI only <i>explains and recommends</i>. A fixed, tested rule makes the final call and a <b>human signs off</b> on anything risky — the AI can never silently approve spend on its own.</div>
+
+<h2>2. ⚠️ Does it read PDF / images / Excel / CSV?</h2>
+<p><b>CSV now works</b> through the web console's <b>Bulk Upload</b> tab; other file types are on the roadmap.</p>
+<table>
+  <tr><th>File type</th><th class="c">Read today?</th><th>Notes</th></tr>
+  <tr><td>CSV</td><td class="c yes">Yes</td><td>Upload/paste in <b>Bulk Upload</b> → decides the whole sheet → <b>export results as CSV</b>.</td></tr>
+  <tr><td>JSON / API data</td><td class="c yes">Yes</td><td>One request or a batch via the API.</td></tr>
+  <tr><td>Excel (.xlsx)</td><td class="c" style="color:var(--warn);font-weight:700">Save as CSV</td><td>Not read directly yet — in Excel do <i>Save As → CSV</i>, then Bulk Upload. Native .xlsx can be added.</td></tr>
+  <tr><td>PDF invoices/receipts</td><td class="c no">No</td><td>Not yet — needs an OCR/extraction step.</td></tr>
+  <tr><td>PNG / JPG receipts</td><td class="c no">No</td><td>Not yet — needs OCR (read amount/vendor/date from the image).</td></tr>
+</table>
+<p>So today you can <b>upload a CSV</b> or enter one expense on the Submit form. Excel → save as CSV first. PDF/image receipts still need a reader built.</p>
+<h3>What I can still add (in order of usefulness)</h3>
+<ul>
+  <li><b>Native Excel (.xlsx) upload</b> → skip the "save as CSV" step.</li>
+  <li><b>PDF / image receipt OCR</b> → extracts amount / vendor / date from a receipt, then checks it. <span class="muted">(bigger job)</span></li>
+  <li><b>PDF report export</b> → results export as CSV today; PDF can be added.</li>
+</ul>
+
+<h2>3. What reports / outputs it provides today</h2>
+<table>
+  <tr><th>Output</th><th>Endpoint</th><th>What you get</th></tr>
+  <tr><td>Decision for one expense</td><td><code>POST /approve</code></td><td>Decision + risk (0–100) + plain reason + rules fired + model/version.</td></tr>
+  <tr><td>Decision for many</td><td><code>POST /approve/batch</code></td><td>Same for a whole list; duplicates flagged across the batch.</td></tr>
+  <tr><td>Decision history</td><td><code>GET /decisions</code></td><td>All past decisions, filterable by outcome/employee, paginated.</td></tr>
+  <tr><td>Review queue</td><td><code>GET /review-queue</code></td><td>Items waiting for a human to approve/reject.</td></tr>
+  <tr><td>Audit trail (one item)</td><td><code>GET /decisions/{id}/audit</code></td><td>Step-by-step: request → AI reasoning → policy → decision → human → final.</td></tr>
+  <tr><td>Global audit log</td><td><code>GET /audit</code></td><td>Every audit event across all decisions (for the Auditor).</td></tr>
+  <tr><td>Live metrics</td><td><code>GET /metrics</code></td><td>Monitoring stats: decisions, latency, failures, cost (Prometheus format).</td></tr>
+</table>
+<p class="muted">These are live data feeds, not yet formatted PDF/Excel report files — a downloadable report is on the "can add next" list.</p>
+<div class="callout"><b>Proof it works:</b> tested on <b>1,000 synthetic cases → 100% correct decisions, 0 unsafe auto-approvals</b> (see <code>benchmark/RESULTS.md</code>). This check re-runs automatically on every code change.</div>
+
+<h2>4. Who can do what (roles)</h2>
+<table>
+  <tr><th>Role</th><th class="c">Submit</th><th class="c">Approve / reject</th><th class="c">View history &amp; audit</th><th class="c">Manage users</th></tr>
+  <tr><td>Employee</td><td class="c yes">✔</td><td class="c">—</td><td class="c">—</td><td class="c">—</td></tr>
+  <tr><td>Finance Manager</td><td class="c yes">✔</td><td class="c yes">✔</td><td class="c yes">✔</td><td class="c">—</td></tr>
+  <tr><td>Auditor</td><td class="c yes">✔</td><td class="c">—</td><td class="c yes">✔ (read)</td><td class="c">—</td></tr>
+  <tr><td>Admin</td><td class="c yes">✔</td><td class="c yes">✔</td><td class="c yes">✔</td><td class="c yes">✔</td></tr>
+</table>
+<p>The approver is recorded automatically from their login — it can't be faked in the request.</p>
+
+<h2>5. How to run it (one-time setup)</h2>
+<p>Needs <b>Python 3.11+</b> (or Docker).</p>
+<h3>Option A — Python</h3>
+<pre><code>cd "Agentic Finance Crew"
+pip install -e ".[dev]"
+uvicorn app:app --port 8000</code></pre>
+<p>Open <a href="http://localhost:8000/">http://localhost:8000/</a> — the <b>web console</b> (log in <code>admin</code> / <code>admin</code> on first run). Submit, Bulk Upload (CSV), Review Queue, Decisions + audit trail, Overview charts, dark mode and a 🔊 Listen button. The technical API explorer is at <code>/docs</code>.</p>
+<h3>Option B — Docker</h3>
+<pre><code>docker compose up --build      # API on http://localhost:8000</code></pre>
+<div class="warn"><b>Set these before real use</b> (don't leave defaults): <code>ADMIN_PASSWORD</code>, <code>JWT_SECRET</code> (long random string ≥32 chars). For company data, use PostgreSQL via <code>DATABASE_URL</code> then run <code>alembic upgrade head</code>.</div>
+
+<h2>6. Day-to-day use</h2>
+<ol>
+  <li><b>Log in</b> for a token (in <code>/docs</code> click <i>Authorize</i>).</li>
+  <li><b>Submit an expense</b> (<code>POST /approve</code>) → get decision, risk, reason, <code>record_id</code>.</li>
+  <li><b>Finance Manager</b> checks <code>/review-queue</code> and approves/rejects with an optional note.</li>
+  <li><b>Auditor</b> pulls the full trail any time (<code>/decisions/{id}/audit</code>).</li>
+</ol>
+<p>Fields you send: <code>id</code>, <code>employee</code>, <code>category</code> (travel/meals/software/equipment/other), <code>amount</code>, <code>has_receipt</code>, plus optional <code>description</code>, <code>currency</code>, <code>date</code>. The spend limits can be tuned to SLP's real policy — give me the numbers.</p>
+
+<h2>7. What it does / does NOT do yet</h2>
+<ul>
+  <li><span class="yes">✔</span> Reads <b>CSV</b> (Bulk Upload) and exports results to CSV — <i>new</i>.</li>
+  <li><span class="no">✗</span> Native Excel <code>.xlsx</code> (save as CSV first), PDFs, image receipts (OCR) — see §2.</li>
+  <li><span class="no">✗</span> Email/Slack notifications to approvers.</li>
+  <li><span class="no">✗</span> <b>PDF</b> report file (CSV export works today).</li>
+  <li><span class="no">✗</span> Connect to SLP's real expense/accounting system.</li>
+</ul>
+<p>None are blockers — all can be added.</p>
+
+<h2>8. Data &amp; privacy</h2>
+<ul>
+  <li>All sample data is fictional — no real SLP financial data included.</li>
+  <li>Passwords are stored as secure salted hashes, never plain text.</li>
+  <li>Login secret &amp; DB credentials come from the environment — never in code.</li>
+  <li>Keep <code>JWT_SECRET</code>, <code>ADMIN_PASSWORD</code>, <code>DATABASE_URL</code> off shared drives and out of email.</li>
+</ul>
+
+<footer>
+  Prepared for Sugarland Petroleum · Full technical details in <code>README.md</code> · Live demo:
+  <a href="https://agentic-finance-crew-deploy.vercel.app">agentic-finance-crew-deploy.vercel.app</a><br>
+  Want a feature (CSV/Excel upload, receipt OCR, downloadable reports)? Ask and it gets built.
+</footer>
+</div>
+</body>
+</html>
