@@ -14,6 +14,8 @@ dependencies = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
     "pydantic>=2.6",
+    "SQLAlchemy>=2.0",
+    "alembic>=1.13",
 ]
 
 [project.optional-dependencies]
@@ -23,6 +25,9 @@ dependencies = [
 #   pip install -e ".[langgraph]"  # LangGraph state-graph engine (no key needed)
 crewai = ["crewai>=0.70"]
 langgraph = ["langgraph>=0.2"]
+# PostgreSQL driver — only needed to point DATABASE_URL at Postgres in prod.
+# Dev/CI run on the bundled SQLite, so this stays out of the base install.
+postgres = ["psycopg[binary]>=3.1"]
 dev = ["pytest>=8", "httpx>=0.27", "langgraph>=0.2"]
 
 [tool.setuptools.packages.find]

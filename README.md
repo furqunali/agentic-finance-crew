@@ -11,7 +11,8 @@
   <img src="https://img.shields.io/badge/FastAPI-service-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI">
   <img src="https://img.shields.io/badge/Docker-containerized-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker">
   <img src="https://img.shields.io/badge/Kubernetes-ready-326CE5?style=flat-square&logo=kubernetes&logoColor=white" alt="Kubernetes">
-  <img src="https://img.shields.io/badge/tests-31%20passing-2ea44f?style=flat-square" alt="tests">
+  <img src="https://img.shields.io/badge/PostgreSQL-persisted-336791?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL">
+  <img src="https://img.shields.io/badge/tests-38%20passing-2ea44f?style=flat-square" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT">
 </p>
 
@@ -57,6 +58,8 @@ flowchart TD
     G --> R2[Human review queue]
     G --> R3[Rejected]
 
+    R1 & R2 & R3 --> DB[(Decision store<br/>SQLAlchemy + Alembic<br/>SQLite dev · Postgres prod)]
+
     T[(Shared deterministic tools<br/>policy · risk · duplicate)] -.-> S1 & S2 & S3
 ```
 
@@ -73,14 +76,15 @@ All three call the **same shared tools** for the hard rules, and all funnel thro
 - **Multi-agent orchestration** with CrewAI (sequential Intake → Analyst → Approver crew).
 - **Policy-as-code guardrail** — spend limits, receipt rules, per-category limits and duplicate detection live in tested code, not in prompts.
 - **Human-in-the-loop** routing for anything over-limit, non-compliant or high-risk.
+- **Durable system-of-record** — every decision is persisted via SQLAlchemy with Alembic migrations; runs on zero-config **SQLite** in dev and **PostgreSQL** in production by flipping one env var.
 - **Runs with zero secrets** via the local engine — great for demos, CI and offline dev.
-- **FastAPI service** (`/approve`, `/approve/batch`, `/health`) with OpenAPI docs at `/docs`.
+- **FastAPI service** (`/approve`, `/approve/batch`, `/decisions`, `/health`) with OpenAPI docs at `/docs`.
 - **Fully containerized** (multi-stage, non-root, healthcheck) and **Kubernetes-ready**.
 - **CI on every push** — tests across Python 3.10–3.12 + a Docker build/health check.
 
 ## 🧰 Tech Stack
 
-**Python 3.11** · **CrewAI** (multi-agent) · **LangGraph** (state-graph) · **FastAPI** + **Uvicorn** · **Pydantic** · **Docker** (multi-stage) · **Kubernetes** · **GitHub Actions** · **pytest**
+**Python 3.11** · **CrewAI** (multi-agent) · **LangGraph** (state-graph) · **FastAPI** + **Uvicorn** · **Pydantic** · **SQLAlchemy 2.0** + **Alembic** · **PostgreSQL** / **SQLite** · **Docker** (multi-stage) · **Kubernetes** · **GitHub Actions** · **pytest**
 
 ## 🧠 AI / Engineering Decisions
 
@@ -114,7 +118,7 @@ cd agentic-finance-crew
 pip install -e ".[dev]"
 
 python run_demo.py          # run the crew over the sample batch (no key needed)
-pytest -q                   # 31 tests, all green
+pytest -q                   # 38 tests, all green
 uvicorn app:app --reload    # API at http://localhost:8000/docs
 ```
 
@@ -160,6 +164,7 @@ engine or enable the real crew.
 
 | Variable         | Default        | Values / example                          | Description |
 |------------------|----------------|-------------------------------------------|-------------|
+| `DATABASE_URL`   | `sqlite:///./finance_crew.db` | `postgresql+psycopg://user:pass@host/db` | Where decisions are persisted. SQLite by default; point at Postgres for production (`pip install -e ".[postgres]"`). |
 | `ENGINE`         | `auto`         | `auto` · `local` · `langgraph` · `crewai` | Which orchestrator runs. `auto` picks the real crew if opted-in **and** keyed, otherwise `local`. |
 | `USE_CREWAI`     | `false`        | `true` / `false`                          | Opt-in flag for the real CrewAI crew (needs a key too). |
 | `LLM_PROVIDER`   | `openai`       | `openai` · `gemini`                       | LLM vendor used by the CrewAI engine. |
@@ -190,17 +195,43 @@ curl -s http://localhost:8000/approve/batch \
 
 # Health / active engine
 curl -s http://localhost:8000/health   # -> {"status":"ok","engine":"local"}
+
+# Persisted decision history (every /approve is written to the database)
+curl -s "http://localhost:8000/decisions?limit=20&decision=needs_human_review"
+curl -s http://localhost:8000/decisions/1      # one record by stored id
 ```
 
+Every `/approve` response now carries a `record_id` pointing at the stored row.
 Interactive OpenAPI docs are always at [`/docs`](http://localhost:8000/docs).
 Malformed payloads return a clean `422`; an empty or oversized batch is
 rejected before any work runs.
+
+## 🗄️ Persistence & migrations
+
+Every decision the API serves is written to a durable **system-of-record** so
+the history is queryable and auditable — not lost when the process restarts.
+
+- **Dev / CI / demo:** the default `DATABASE_URL` is a local **SQLite** file;
+  the schema is auto-created on startup, so there's nothing to set up.
+- **Production:** point `DATABASE_URL` at **PostgreSQL** and install the driver:
+
+  ```bash
+  pip install -e ".[postgres]"
+  export DATABASE_URL="postgresql+psycopg://user:pass@localhost:5432/finance_crew"
+  alembic upgrade head          # apply migrations (make migrate)
+  uvicorn app:app               # decisions now persist to Postgres
+  ```
+
+Schema changes are versioned with **Alembic** (`migrations/`). Generate a new
+migration after changing a model with `make migration m="describe change"`.
+The persistence layer is engine-agnostic — the same code and tests run on both
+SQLite and Postgres (a dedicated CI job proves the Postgres path end-to-end).
 
 ## 🧪 Testing
 
 ```bash
 pip install -e ".[dev]"      # pytest + httpx + langgraph
-pytest -q                    # 31 tests: domain logic, API, engines, error paths
+pytest -q                    # 38 tests: domain logic, API, engines, persistence, error paths
 python run_demo.py           # end-to-end CLI smoke test over the sample batch
 ```
 
@@ -227,7 +258,8 @@ engine misconfiguration paths — all key-free. CI runs the same on Python
 ## 🗺️ Roadmap
 
 - ✅ **LangGraph** orchestrator as a third interchangeable engine (stateful graph) — *done*.
-- Persist the human-review queue + decisions to Postgres as a system-of-record.
+- ✅ **Persist decisions to a database** (SQLAlchemy + Alembic; SQLite dev / Postgres prod) as a system-of-record — *done*.
+- Persist the human-review queue with full audit trail (who approved, rules fired, model/version).
 - Add **eval cases** scoring the crew's rationale quality against the deterministic ground truth.
 - Slack / email approval actions for the human-in-the-loop step.
 - Deploy the FastAPI service (runs key-free in local mode) as a public live demo.
@@ -240,6 +272,7 @@ A [`Makefile`](Makefile) wraps the everyday commands:
 |---------|--------------|
 | `make install` | `pip install -e ".[dev]"` (base + dev deps) |
 | `make test` | Run the full pytest suite |
+| `make migrate` | Apply DB migrations (`alembic upgrade head`) |
 | `make demo` | Run the CLI demo over the sample batch |
 | `make run` | Start the API with autoreload at `:8000` |
 | `make docker-build` | Build the Docker image |

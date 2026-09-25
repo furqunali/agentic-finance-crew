@@ -6,7 +6,7 @@ IMAGE  ?= agentic-finance-crew
 PORT   ?= 8000
 
 .DEFAULT_GOAL := help
-.PHONY: help install test demo run docker-build docker-run docker-up clean
+.PHONY: help install test demo run migrate migration docker-build docker-run docker-up clean
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -23,6 +23,12 @@ demo:  ## Run the CLI demo over the sample batch
 
 run:  ## Start the FastAPI service with autoreload
 	$(PYTHON) -m uvicorn app:app --reload --port $(PORT)
+
+migrate:  ## Apply DB migrations (uses DATABASE_URL, defaults to local SQLite)
+	$(PYTHON) -m alembic upgrade head
+
+migration:  ## Autogenerate a new migration: make migration m="add users table"
+	$(PYTHON) -m alembic revision --autogenerate -m "$(m)"
 
 docker-build:  ## Build the Docker image
 	docker build -t $(IMAGE) .
