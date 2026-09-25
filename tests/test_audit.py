@@ -8,13 +8,15 @@ pytest.importorskip("sqlalchemy")
 from fastapi.testclient import TestClient
 
 from app import app
+from conftest import bearer
 from finance_crew import repository
 from finance_crew.db import session_scope
 from finance_crew.errors import ConflictError
 from finance_crew.records import Status, Step
 from finance_crew.service import decide_and_store, resolve_decision
 
-client = TestClient(app)
+# Admin can both submit and review, so it drives the end-to-end workflow here.
+client = TestClient(app, headers=bearer("admin"))
 
 AUTO = {"id": "AUD-AUTO", "employee": "Auto Ann", "category": "software",
         "amount": 149, "has_receipt": True}
@@ -61,13 +63,13 @@ def test_review_item_is_pending_and_queued():
 
 def test_human_approve_resolves_without_mutating_ai_verdict():
     rid = _create({**REVIEW, "id": "AUD-APP"})["record_id"]
-    resp = client.post(f"/decisions/{rid}/approve",
-                       json={"actor": "m.khan", "note": "receipt verified"})
+    resp = client.post(f"/decisions/{rid}/approve", json={"note": "receipt verified"})
     assert resp.status_code == 200
     rec = resp.json()
     assert rec["status"] == Status.HUMAN_APPROVED
     assert rec["final_action"] == "approved"
-    assert rec["resolved_by"] == "m.khan"
+    # the approver comes from the authenticated token (admin), not the body
+    assert rec["resolved_by"] == "admin"
     assert rec["resolved_at"] is not None
     # the ORIGINAL machine verdict is preserved, not overwritten
     assert rec["decision"] == "needs_human_review"
@@ -76,12 +78,12 @@ def test_human_approve_resolves_without_mutating_ai_verdict():
     trail = client.get(f"/decisions/{rid}/audit").json()["trail"]
     steps = [e["step"] for e in trail]
     assert steps[-2:] == [Step.HUMAN_REVIEW, Step.FINAL_ACTION]
-    assert any("m.khan" in e["actor"] for e in trail)
+    assert any("admin" in e["actor"] for e in trail)
 
 
 def test_human_reject_path():
     rid = _create({**REVIEW, "id": "AUD-REJ"})["record_id"]
-    resp = client.post(f"/decisions/{rid}/reject", json={"actor": "auditor.jo"})
+    resp = client.post(f"/decisions/{rid}/reject", json={"note": "policy breach"})
     assert resp.status_code == 200
     assert resp.json()["status"] == Status.HUMAN_REJECTED
     assert resp.json()["final_action"] == "rejected"
@@ -89,19 +91,19 @@ def test_human_reject_path():
 
 def test_cannot_resolve_an_auto_decided_item():
     rid = _create({**AUTO, "id": "AUD-AUTO2"})["record_id"]
-    resp = client.post(f"/decisions/{rid}/approve", json={"actor": "m.khan"})
+    resp = client.post(f"/decisions/{rid}/approve", json={})
     assert resp.status_code == 409  # ConflictError
 
 
 def test_resolving_missing_decision_404():
-    resp = client.post("/decisions/99999999/approve", json={"actor": "m.khan"})
+    resp = client.post("/decisions/99999999/approve", json={})
     assert resp.status_code == 404
 
 
 def test_resolving_twice_conflicts():
     rid = _create({**REVIEW, "id": "AUD-TWICE"})["record_id"]
-    assert client.post(f"/decisions/{rid}/approve", json={"actor": "a"}).status_code == 200
-    assert client.post(f"/decisions/{rid}/reject", json={"actor": "b"}).status_code == 409
+    assert client.post(f"/decisions/{rid}/approve", json={}).status_code == 200
+    assert client.post(f"/decisions/{rid}/reject", json={}).status_code == 409
 
 
 def test_service_level_conflict_and_immutability():

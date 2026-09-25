@@ -12,11 +12,12 @@ pytest.importorskip("sqlalchemy")
 from fastapi.testclient import TestClient
 
 from app import app
+from conftest import bearer
 from finance_crew import repository
 from finance_crew.db import session_scope
 from finance_crew.service import decide_and_store
 
-client = TestClient(app)
+client = TestClient(app, headers=bearer("admin"))
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 

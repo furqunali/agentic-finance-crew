@@ -7,6 +7,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Authentication & RBAC.**
+  - JWT bearer-token auth (`/auth/login`, `/auth/me`) with a `users` table and
+    salted **PBKDF2** password hashing (stdlib only — no bcrypt/argon2 wheels).
+  - Four roles — **Employee / Finance Manager / Auditor / Admin** — gating every
+    action: submit (all), review/approve/reject (manager+admin), read decisions
+    & audit (auditor+manager+admin), user management (admin).
+  - Admin user management (`POST /auth/register`, `GET /auth/users`) and a
+    bootstrap admin seeded on first run (`ADMIN_USERNAME`/`ADMIN_PASSWORD`).
+  - The approver on a resolution is taken from the authenticated token, never
+    the request body. Missing/invalid token ⇒ `401`; wrong role ⇒ `403`.
+  - Alembic migration `0003_users`; app startup modernized to a lifespan handler.
 - **Audit trail + human-in-the-loop review workflow.**
   - Every decision now records an immutable, append-only audit trail
     (`request_received → ai_reasoning → policy_evaluation → decision →

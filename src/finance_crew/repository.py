@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .models import ApprovalResult, ExpenseRequest
-from .records import AuditEvent, DecisionRecord, Status
+from .records import AuditEvent, DecisionRecord, Status, User
 
 
 def save_decision(session: Session, request: ExpenseRequest, result: ApprovalResult) -> DecisionRecord:
@@ -104,3 +104,37 @@ def list_audit_events(
         stmt = stmt.where(AuditEvent.step == step)
     stmt = stmt.offset(max(offset, 0)).limit(max(1, min(limit, 1000)))
     return list(session.scalars(stmt).all())
+
+
+# --- Users -------------------------------------------------------------------
+def get_user_by_username(session: Session, username: str) -> User | None:
+    stmt = select(User).where(User.username == username)
+    return session.scalars(stmt).first()
+
+
+def count_users(session: Session) -> int:
+    from sqlalchemy import func
+
+    return int(session.scalar(select(func.count()).select_from(User)) or 0)
+
+
+def list_users(session: Session, *, limit: int = 100, offset: int = 0) -> list[User]:
+    stmt = select(User).order_by(User.id.asc()).offset(max(offset, 0)).limit(max(1, min(limit, 500)))
+    return list(session.scalars(stmt).all())
+
+
+def create_user(
+    session: Session, *, username: str, password: str, role: str, full_name: str = ""
+) -> User:
+    """Create a user with a securely hashed password. Flushes so id is set."""
+    from .security import hash_password
+
+    user = User(
+        username=username,
+        hashed_password=hash_password(password),
+        role=role,
+        full_name=full_name,
+    )
+    session.add(user)
+    session.flush()
+    return user

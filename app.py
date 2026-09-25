@@ -11,33 +11,54 @@ The CrewAI path fails fast with a clear message when opted-in but unkeyed.
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
+from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from finance_crew import repository
+from finance_crew.auth import (
+    CAN_ADMIN,
+    CAN_AUDIT,
+    CAN_REVIEW,
+    CAN_SUBMIT,
+    Role,
+    authenticate,
+    create_access_token,
+    ensure_admin_seed,
+    get_current_user,
+    require_roles,
+)
 from finance_crew.config import Settings
-from finance_crew.db import get_session, init_db
+from finance_crew.db import get_session, init_db, session_scope
 from finance_crew.errors import ConfigurationError, ConflictError, NotFoundError, ValidationError
+from finance_crew.records import User
 from finance_crew.service import decide_and_store, decide_and_store_batch, resolve_decision
 
 logger = logging.getLogger("finance_crew.api")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Ensure the schema exists and a bootstrap admin is present on startup.
+    Fine for SQLite/dev/CI; production on Postgres runs Alembic migrations, and
+    these calls are harmless idempotent no-ops there."""
+    init_db()
+    with session_scope() as session:
+        ensure_admin_seed(session)
+    yield
+
 
 app = FastAPI(
     title="Agentic Finance Crew",
     version="1.0.0",
     description="Multi-agent expense-approval crew (CrewAI) with a policy guardrail.",
+    lifespan=lifespan,
 )
-
-
-@app.on_event("startup")
-def _startup() -> None:
-    """Ensure the schema exists. Fine for SQLite/dev/CI; production on Postgres
-    runs Alembic migrations, and this call is a harmless idempotent no-op there."""
-    init_db()
 
 # Guard against unbounded batches turning into a denial-of-service.
 MAX_BATCH_SIZE = 500
@@ -55,10 +76,17 @@ class ExpenseIn(BaseModel):
 
 
 class ResolutionIn(BaseModel):
-    """A human reviewer's decision on an item in the review queue."""
+    """A human reviewer's note on an item in the review queue. The approver's
+    identity is taken from the authenticated token, never the request body."""
 
-    actor: str = Field(..., min_length=1, examples=["m.khan (Finance Manager)"])
     note: str = Field("", examples=["Verified receipt with vendor; approved."])
+
+
+class UserCreateIn(BaseModel):
+    username: str = Field(..., min_length=1, examples=["m.khan"])
+    password: str = Field(..., min_length=6, examples=["change-me-please"])
+    role: str = Field(Role.EMPLOYEE, examples=[Role.FINANCE_MANAGER])
+    full_name: str = Field("", examples=["Mustafa Khan"])
 
 
 def _error_payload(status: int, message: str, detail: str | None = None) -> dict[str, Any]:
@@ -100,6 +128,65 @@ def health() -> dict[str, Any]:
     return {"status": "ok", "engine": Settings.from_env().active_engine}
 
 
+# --- Authentication ---------------------------------------------------------
+@app.post("/auth/login")
+def login(
+    form: OAuth2PasswordRequestForm = Depends(), session: Session = Depends(get_session)
+) -> dict[str, Any]:
+    """Exchange username + password for a JWT bearer token."""
+    user = authenticate(session, form.username, form.password)
+    if user is None:
+        raise HTTPException(
+            status_code=401,
+            detail=_error_payload(401, "incorrect username or password")["error"],
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    token = create_access_token(user.username, user.role)
+    return {"access_token": token, "token_type": "bearer", "role": user.role}
+
+
+@app.get("/auth/me")
+def me(user: User = Depends(get_current_user)) -> dict[str, Any]:
+    """Return the authenticated user's profile."""
+    return user.to_dict()
+
+
+@app.post("/auth/register", status_code=201)
+def register_user(
+    body: UserCreateIn,
+    session: Session = Depends(get_session),
+    _admin: User = Depends(require_roles(*CAN_ADMIN)),
+) -> dict[str, Any]:
+    """Create a user (admin only)."""
+    if body.role not in Role.ALL:
+        raise HTTPException(
+            status_code=422,
+            detail=_error_payload(422, f"unknown role '{body.role}'")["error"],
+        )
+    if repository.get_user_by_username(session, body.username) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=_error_payload(409, f"username '{body.username}' already exists")["error"],
+        )
+    user = repository.create_user(
+        session, username=body.username, password=body.password,
+        role=body.role, full_name=body.full_name,
+    )
+    return user.to_dict()
+
+
+@app.get("/auth/users")
+def list_all_users(
+    session: Session = Depends(get_session),
+    _admin: User = Depends(require_roles(*CAN_ADMIN)),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+) -> dict[str, Any]:
+    """List all users (admin only)."""
+    rows = repository.list_users(session, limit=limit, offset=offset)
+    return {"count": len(rows), "items": [u.to_dict() for u in rows]}
+
+
 def _serialize(session: Session, record_id: int) -> dict[str, Any]:
     """Return the stored record (status, audit fields, model/version …) with a
     convenience ``record_id`` alias alongside its primary key."""
@@ -111,9 +198,15 @@ def _serialize(session: Session, record_id: int) -> dict[str, Any]:
 
 
 @app.post("/approve")
-def approve(expense: ExpenseIn, session: Session = Depends(get_session)) -> dict[str, Any]:
+def approve(
+    expense: ExpenseIn,
+    session: Session = Depends(get_session),
+    user: User = Depends(require_roles(*CAN_SUBMIT)),
+) -> dict[str, Any]:
     try:
-        _result, record_id = decide_and_store(session, expense.model_dump())
+        _result, record_id = decide_and_store(
+            session, expense.model_dump(), requested_by=user.username
+        )
         return _serialize(session, record_id)
     except (ConfigurationError, ValidationError):
         raise  # handled by the dedicated exception handlers above
@@ -127,7 +220,9 @@ def approve(expense: ExpenseIn, session: Session = Depends(get_session)) -> dict
 
 @app.post("/approve/batch")
 def approve_batch(
-    expenses: list[ExpenseIn], session: Session = Depends(get_session)
+    expenses: list[ExpenseIn],
+    session: Session = Depends(get_session),
+    user: User = Depends(require_roles(*CAN_SUBMIT)),
 ) -> list[dict[str, Any]]:
     if not expenses:
         raise HTTPException(
@@ -142,7 +237,9 @@ def approve_batch(
             )["error"],
         )
     try:
-        stored = decide_and_store_batch(session, [e.model_dump() for e in expenses])
+        stored = decide_and_store_batch(
+            session, [e.model_dump() for e in expenses], requested_by=user.username
+        )
         return [_serialize(session, record_id) for _result, record_id in stored]
     except ConfigurationError:
         raise
@@ -157,6 +254,7 @@ def approve_batch(
 @app.get("/decisions")
 def list_decisions(
     session: Session = Depends(get_session),
+    _user: User = Depends(require_roles(*CAN_AUDIT)),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     decision: str | None = Query(None, description="Filter by decision value"),
@@ -176,7 +274,11 @@ def list_decisions(
 
 
 @app.get("/decisions/{record_id}")
-def get_decision(record_id: int, session: Session = Depends(get_session)) -> dict[str, Any]:
+def get_decision(
+    record_id: int,
+    session: Session = Depends(get_session),
+    _user: User = Depends(require_roles(*CAN_AUDIT)),
+) -> dict[str, Any]:
     """Fetch a single persisted decision by its stored id."""
     record = repository.get_decision(session, record_id)
     if record is None:
@@ -191,6 +293,7 @@ def get_decision(record_id: int, session: Session = Depends(get_session)) -> dic
 @app.get("/review-queue")
 def review_queue(
     session: Session = Depends(get_session),
+    _user: User = Depends(require_roles(*CAN_REVIEW)),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
@@ -201,25 +304,35 @@ def review_queue(
 
 @app.post("/decisions/{record_id}/approve")
 def approve_decision(
-    record_id: int, body: ResolutionIn, session: Session = Depends(get_session)
+    record_id: int,
+    body: ResolutionIn,
+    session: Session = Depends(get_session),
+    user: User = Depends(require_roles(*CAN_REVIEW)),
 ) -> dict[str, Any]:
-    """A human approves an item in the review queue."""
-    record = resolve_decision(session, record_id, "approve", body.actor, body.note)
+    """A human (Finance Manager / Admin) approves an item in the review queue."""
+    record = resolve_decision(session, record_id, "approve", user.username, body.note)
     return record.to_dict()
 
 
 @app.post("/decisions/{record_id}/reject")
 def reject_decision(
-    record_id: int, body: ResolutionIn, session: Session = Depends(get_session)
+    record_id: int,
+    body: ResolutionIn,
+    session: Session = Depends(get_session),
+    user: User = Depends(require_roles(*CAN_REVIEW)),
 ) -> dict[str, Any]:
-    """A human rejects an item in the review queue."""
-    record = resolve_decision(session, record_id, "reject", body.actor, body.note)
+    """A human (Finance Manager / Admin) rejects an item in the review queue."""
+    record = resolve_decision(session, record_id, "reject", user.username, body.note)
     return record.to_dict()
 
 
 # --- Audit trail ------------------------------------------------------------
 @app.get("/decisions/{record_id}/audit")
-def decision_audit(record_id: int, session: Session = Depends(get_session)) -> dict[str, Any]:
+def decision_audit(
+    record_id: int,
+    session: Session = Depends(get_session),
+    _user: User = Depends(require_roles(*CAN_AUDIT)),
+) -> dict[str, Any]:
     """The full, ordered audit trail for one decision."""
     record = repository.get_decision(session, record_id)
     if record is None:
@@ -234,6 +347,7 @@ def decision_audit(record_id: int, session: Session = Depends(get_session)) -> d
 @app.get("/audit")
 def audit_log(
     session: Session = Depends(get_session),
+    _user: User = Depends(require_roles(*CAN_AUDIT)),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     step: str | None = Query(None, description="Filter by lifecycle step"),

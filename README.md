@@ -12,7 +12,8 @@
   <img src="https://img.shields.io/badge/Docker-containerized-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker">
   <img src="https://img.shields.io/badge/Kubernetes-ready-326CE5?style=flat-square&logo=kubernetes&logoColor=white" alt="Kubernetes">
   <img src="https://img.shields.io/badge/PostgreSQL-persisted-336791?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL">
-  <img src="https://img.shields.io/badge/tests-47%20passing-2ea44f?style=flat-square" alt="tests">
+  <img src="https://img.shields.io/badge/Auth-JWT%20%2B%20RBAC-000000?style=flat-square&logo=jsonwebtokens&logoColor=white" alt="JWT + RBAC">
+  <img src="https://img.shields.io/badge/tests-57%20passing-2ea44f?style=flat-square" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT">
 </p>
 
@@ -79,14 +80,15 @@ All three call the **same shared tools** for the hard rules, and all funnel thro
 - **Human-in-the-loop** routing for anything over-limit, non-compliant or high-risk — with a **review queue** and human approve/reject actions.
 - **Durable system-of-record** — every decision is persisted via SQLAlchemy with Alembic migrations; runs on zero-config **SQLite** in dev and **PostgreSQL** in production by flipping one env var.
 - **Immutable audit trail** — each decision logs the full lifecycle (who requested it → what the AI recommended → which rules fired → who approved it → timestamps, reason, model/version). The machine verdict is never overwritten by a human resolution.
+- **Auth & RBAC** — JWT bearer tokens with four roles (**Employee / Finance Manager / Auditor / Admin**); the approver's identity comes from the token, not the request body.
 - **Runs with zero secrets** via the local engine — great for demos, CI and offline dev.
-- **FastAPI service** (`/approve`, `/approve/batch`, `/decisions`, `/review-queue`, `/audit`, `/health`) with OpenAPI docs at `/docs`.
+- **FastAPI service** (`/auth/*`, `/approve`, `/approve/batch`, `/decisions`, `/review-queue`, `/audit`, `/health`) with OpenAPI docs at `/docs`.
 - **Fully containerized** (multi-stage, non-root, healthcheck) and **Kubernetes-ready**.
 - **CI on every push** — tests across Python 3.10–3.12 + a Docker build/health check.
 
 ## 🧰 Tech Stack
 
-**Python 3.11** · **CrewAI** (multi-agent) · **LangGraph** (state-graph) · **FastAPI** + **Uvicorn** · **Pydantic** · **SQLAlchemy 2.0** + **Alembic** · **PostgreSQL** / **SQLite** · **Docker** (multi-stage) · **Kubernetes** · **GitHub Actions** · **pytest**
+**Python 3.11** · **CrewAI** (multi-agent) · **LangGraph** (state-graph) · **FastAPI** + **Uvicorn** · **Pydantic** · **JWT (PyJWT) + RBAC** · **SQLAlchemy 2.0** + **Alembic** · **PostgreSQL** / **SQLite** · **Docker** (multi-stage) · **Kubernetes** · **GitHub Actions** · **pytest**
 
 ## 🧠 AI / Engineering Decisions
 
@@ -120,7 +122,7 @@ cd agentic-finance-crew
 pip install -e ".[dev]"
 
 python run_demo.py          # run the crew over the sample batch (no key needed)
-pytest -q                   # 47 tests, all green
+pytest -q                   # 57 tests, all green
 uvicorn app:app --reload    # API at http://localhost:8000/docs
 ```
 
@@ -167,6 +169,9 @@ engine or enable the real crew.
 | Variable         | Default        | Values / example                          | Description |
 |------------------|----------------|-------------------------------------------|-------------|
 | `DATABASE_URL`   | `sqlite:///./finance_crew.db` | `postgresql+psycopg://user:pass@host/db` | Where decisions are persisted. SQLite by default; point at Postgres for production (`pip install -e ".[postgres]"`). |
+| `JWT_SECRET`     | _(ephemeral)_  | long random string                        | Signing secret for JWT tokens. **Set in production** (unset ⇒ per-process dev secret, tokens don't survive restarts). |
+| `JWT_EXPIRE_MINUTES` | `60`       | integer                                   | Access-token lifetime in minutes. |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin` / `admin` | any                    | Bootstrap admin created on first run against an empty user table. **Change these.** |
 | `ENGINE`         | `auto`         | `auto` · `local` · `langgraph` · `crewai` | Which orchestrator runs. `auto` picks the real crew if opted-in **and** keyed, otherwise `local`. |
 | `USE_CREWAI`     | `false`        | `true` / `false`                          | Opt-in flag for the real CrewAI crew (needs a key too). |
 | `LLM_PROVIDER`   | `openai`       | `openai` · `gemini`                       | LLM vendor used by the CrewAI engine. |
@@ -207,6 +212,41 @@ Every `/approve` response now carries a `record_id` pointing at the stored row.
 Interactive OpenAPI docs are always at [`/docs`](http://localhost:8000/docs).
 Malformed payloads return a clean `422`; an empty or oversized batch is
 rejected before any work runs.
+
+## 🔐 Authentication & RBAC
+
+Protected endpoints require a **JWT bearer token** obtained from `/auth/login`.
+Four roles mirror a real finance back-office, and each route is gated by
+capability (Admin can do everything):
+
+| Role | Submit expenses | Review queue (approve/reject) | Read decisions & audit | Manage users |
+|------|:---:|:---:|:---:|:---:|
+| **Employee** | ✅ | — | — | — |
+| **Finance Manager** | ✅ | ✅ | ✅ | — |
+| **Auditor** | ✅ | — | ✅ (read-only) | — |
+| **Admin** | ✅ | ✅ | ✅ | ✅ |
+
+```bash
+# 1) Log in (a bootstrap admin is seeded on first run — change the default!)
+TOKEN=$(curl -s -X POST http://localhost:8000/auth/login \
+  -d "username=admin&password=admin" | python -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
+
+# 2) Call protected endpoints with the bearer token
+curl -s http://localhost:8000/auth/me           -H "Authorization: Bearer $TOKEN"
+curl -s http://localhost:8000/approve           -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"id":"EXP-1001","employee":"A. Rivera","category":"software","amount":149,"has_receipt":true}'
+
+# 3) Admins create users with roles
+curl -s -X POST http://localhost:8000/auth/register -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"m.khan","password":"change-me","role":"finance_manager","full_name":"Mustafa Khan"}'
+```
+
+A missing/invalid token returns `401`; a valid token without the required role
+returns `403`. Passwords are stored as salted **PBKDF2** hashes (stdlib only —
+no bcrypt/argon2 wheels). The approver recorded on a resolution is always taken
+from the token, never trusted from the request body.
 
 ## 🗄️ Persistence & migrations
 
@@ -268,7 +308,7 @@ curl -s "http://localhost:8000/audit?step=final_action&limit=50"
 
 ```bash
 pip install -e ".[dev]"      # pytest + httpx + langgraph
-pytest -q                    # 47 tests: domain logic, API, engines, persistence, audit, error paths
+pytest -q                    # 57 tests: domain logic, API, engines, persistence, audit, auth/RBAC, error paths
 python run_demo.py           # end-to-end CLI smoke test over the sample batch
 ```
 
@@ -289,6 +329,7 @@ engine misconfiguration paths — all key-free. CI runs the same on Python
 ## 🔒 Security & Data
 
 - **No secrets in code or images** — every key is read from the environment; `.env` is gitignored, only `.env.example` (placeholders) is tracked. K8s manifests reference a `Secret`, not plain values.
+- **Auth by default** — protected routes require a JWT; RBAC restricts who can approve, audit and manage users. `JWT_SECRET` is env-supplied; passwords are salted **PBKDF2** hashes and are never serialized.
 - **Runs as a non-root container user**; image is a slim multi-stage build.
 - **Fully synthetic data** — `sample_data/expenses.json` contains fictional employees and amounts only. No real financial data.
 
@@ -297,7 +338,9 @@ engine misconfiguration paths — all key-free. CI runs the same on Python
 - ✅ **LangGraph** orchestrator as a third interchangeable engine (stateful graph) — *done*.
 - ✅ **Persist decisions to a database** (SQLAlchemy + Alembic; SQLite dev / Postgres prod) as a system-of-record — *done*.
 - ✅ **Immutable audit trail + human-review queue** (who approved, rules fired, model/version; approve/reject workflow) — *done*.
-- **Authentication & RBAC** (JWT; Employee / Finance Manager / Auditor / Admin) gating the review actions.
+- ✅ **Authentication & RBAC** (JWT; Employee / Finance Manager / Auditor / Admin) gating every action — *done*.
+- **Observability** — structured logs, Prometheus metrics, per-decision latency / token-usage / model-cost / failure-rate.
+- **Evaluation benchmark** — 500–1,000 synthetic cases scoring accuracy, violation/duplicate detection, false approve/reject, escalation rate, latency & cost.
 - Add **eval cases** scoring the crew's rationale quality against the deterministic ground truth.
 - Slack / email approval actions for the human-in-the-loop step.
 - Deploy the FastAPI service (runs key-free in local mode) as a public live demo.
