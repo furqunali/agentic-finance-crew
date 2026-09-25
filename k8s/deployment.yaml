@@ -13,6 +13,11 @@ spec:
     metadata:
       labels:
         app: agentic-finance-crew
+      annotations:
+        # Let a cluster Prometheus auto-discover and scrape /metrics.
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: /metrics
     spec:
       securityContext:
         runAsNonRoot: true

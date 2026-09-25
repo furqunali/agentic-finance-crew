@@ -8,12 +8,13 @@ audit events, inside a single transaction owned by the caller's session_scope.
 """
 from __future__ import annotations
 
+import time
 from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy.orm import Session
 
-from . import __version__, repository
+from . import __version__, observability, repository
 from .config import Settings
 from .errors import ConflictError, NotFoundError, ValidationError
 from .models import ApprovalResult, ExpenseRequest
@@ -60,6 +61,36 @@ def _write_initial_trail(session: Session, record: DecisionRecord, result: Appro
         )
 
 
+def _persist(
+    session: Session,
+    request: ExpenseRequest,
+    result: ApprovalResult,
+    settings: Settings,
+    requested_by: str | None,
+    latency_ms: float,
+) -> DecisionRecord:
+    """Store one decision + its trail and emit the observability metrics.
+
+    Deterministic engines (local/langgraph) use no LLM, so their token count
+    and cost are genuinely zero; the real crew would report actual usage here.
+    """
+    tokens = 0
+    cost_usd = observability.estimate_cost(settings.model, tokens)
+    record = DecisionRecord.from_result(
+        request, result, requested_by=requested_by,
+        model_version=_model_version(result, settings),
+        latency_ms=latency_ms, tokens=tokens, cost_usd=cost_usd,
+    )
+    session.add(record)
+    session.flush()
+    _write_initial_trail(session, record, result)
+
+    observability.DECISIONS.labels(result.decision.value, result.engine).inc()
+    observability.DECISION_LATENCY.observe(latency_ms / 1000.0)
+    observability.record_llm_usage(result.engine, tokens, cost_usd)
+    return record
+
+
 def decide_and_store(
     session: Session,
     payload: dict[str, Any],
@@ -76,15 +107,12 @@ def decide_and_store(
     request = ExpenseRequest.from_dict(payload)
     hist = [ExpenseRequest.from_dict(h) for h in (history or [])]
     orchestrator = build_orchestrator(settings)
-    result = orchestrator.process(request, hist)
 
-    record = DecisionRecord.from_result(
-        request, result, requested_by=requested_by,
-        model_version=_model_version(result, settings),
-    )
-    session.add(record)
-    session.flush()  # populate record.id
-    _write_initial_trail(session, record, result)
+    t0 = time.perf_counter()
+    result = orchestrator.process(request, hist)
+    latency_ms = (time.perf_counter() - t0) * 1000.0
+
+    record = _persist(session, request, result, settings, requested_by, latency_ms)
     return result, record.id
 
 
@@ -101,14 +129,10 @@ def decide_and_store_batch(
     seen: list[ExpenseRequest] = []
     for payload in payloads:
         request = ExpenseRequest.from_dict(payload)
+        t0 = time.perf_counter()
         result = orchestrator.process(request, list(seen))
-        record = DecisionRecord.from_result(
-            request, result, requested_by=requested_by,
-            model_version=_model_version(result, settings),
-        )
-        session.add(record)
-        session.flush()
-        _write_initial_trail(session, record, result)
+        latency_ms = (time.perf_counter() - t0) * 1000.0
+        record = _persist(session, request, result, settings, requested_by, latency_ms)
         out.append((result, record.id))
         seen.append(request)
     return out
@@ -151,4 +175,5 @@ def resolve_decision(
         f"final action: {record.final_action} by {actor}",
     )
     session.flush()
+    observability.RESOLUTIONS.labels(action).inc()
     return record

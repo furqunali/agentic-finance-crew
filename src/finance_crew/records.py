@@ -102,6 +102,11 @@ class DecisionRecord(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     resolution_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Observability: how long the decision took, and (real crew only) LLM usage.
+    latency_ms: Mapped[float] = mapped_column(Float, default=0.0)
+    tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), default=_utcnow
     )
@@ -120,6 +125,9 @@ class DecisionRecord(Base):
         *,
         requested_by: str | None = None,
         model_version: str = "",
+        latency_ms: float = 0.0,
+        tokens: int = 0,
+        cost_usd: float = 0.0,
     ) -> "DecisionRecord":
         """Build a storable record from a domain request + its verdict."""
         return cls(
@@ -138,6 +146,9 @@ class DecisionRecord(Base):
             model_version=model_version or result.engine,
             requested_by=requested_by or request.employee,
             status=_DECISION_TO_STATUS.get(result.decision.value, Status.PENDING_REVIEW),
+            latency_ms=round(latency_ms, 3),
+            tokens=tokens,
+            cost_usd=cost_usd,
         )
 
     @property
@@ -172,6 +183,9 @@ class DecisionRecord(Base):
             "rationale": self.rationale,
             "engine": self.engine,
             "model_version": self.model_version,
+            "latency_ms": self.latency_ms,
+            "tokens": self.tokens,
+            "cost_usd": self.cost_usd,
             "status": self.status,
             "final_action": self.final_action,
             "resolved_by": self.resolved_by,
