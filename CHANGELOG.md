@@ -18,7 +18,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     instead of failing silently; 5xx responses show a friendly retry message.
 - **`START.cmd`** one-click Windows launcher (installs deps on first run, starts
   the server, opens the console) — removes the "opened the HTML directly / server
-  not running" confusion.
+  not running" confusion. Auto-picks a free port (8000→8001→8002) and waits for
+  the server before opening the browser.
+- **`AUTH_DISABLED`** opt-in flag (default OFF): local/demo no-login mode where
+  every request is the admin user. `START.cmd` sets it for single-user local
+  use; the UI auto-detects it and skips the login screen. Never for production.
 - **Web console (UI).** A self-contained single-page app served at `/ui`
   (bare `/` redirects there), talking to the API with the login JWT:
   - Login + role-aware navigation (Employee / Finance Manager / Auditor / Admin).

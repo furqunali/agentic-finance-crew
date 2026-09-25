@@ -180,6 +180,7 @@ engine or enable the real crew.
 | `LOG_FORMAT`     | `text`         | `text` · `json`                           | `json` emits structured logs for a log platform. |
 | `LOG_LEVEL`      | `INFO`         | `DEBUG` · `INFO` · `WARNING` · …          | Root log level. |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin` / `admin` | any                    | Bootstrap admin created on first run against an empty user table. **Change these.** |
+| `AUTH_DISABLED`  | _(off)_        | `1` / `true`                              | Local/demo only: skip login (every request = admin). **Never in production.** `START.cmd` sets it for single-user local use. |
 | `ENGINE`         | `auto`         | `auto` · `local` · `langgraph` · `crewai` | Which orchestrator runs. `auto` picks the real crew if opted-in **and** keyed, otherwise `local`. |
 | `USE_CREWAI`     | `false`        | `true` / `false`                          | Opt-in flag for the real CrewAI crew (needs a key too). |
 | `LLM_PROVIDER`   | `openai`       | `openai` · `gemini`                       | LLM vendor used by the CrewAI engine. |

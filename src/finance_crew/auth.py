@@ -52,7 +52,14 @@ CAN_REVIEW = frozenset({Role.FINANCE_MANAGER, Role.ADMIN})          # approve/re
 CAN_AUDIT = frozenset({Role.AUDITOR, Role.FINANCE_MANAGER, Role.ADMIN})  # read all/audit
 CAN_ADMIN = frozenset({Role.ADMIN})
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
+
+
+def auth_disabled() -> bool:
+    """Local/demo convenience: when AUTH_DISABLED is truthy, every request is
+    treated as the admin user and no login is required. OFF by default — never
+    enable in production (the whole point of the system is governed access)."""
+    return os.getenv("AUTH_DISABLED", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _secret() -> str:
@@ -105,9 +112,21 @@ _CREDENTIALS_EXC = HTTPException(
 
 
 def get_current_user(
-    token: str = Depends(oauth2_scheme), session: Session = Depends(get_session)
+    token: str | None = Depends(oauth2_scheme), session: Session = Depends(get_session)
 ) -> User:
-    """Resolve the bearer token to an active user (role read from the DB)."""
+    """Resolve the bearer token to an active user (role read from the DB).
+
+    In AUTH_DISABLED mode there is no login: every caller is the admin user."""
+    if auth_disabled():
+        admin = repository.get_user_by_username(session, "admin")
+        if admin is not None:
+            return admin
+        # No seeded admin yet — return a transient admin principal.
+        return User(username="admin", role=Role.ADMIN, full_name="Local Admin",
+                    is_active=True, hashed_password="")
+
+    if not token:
+        raise _CREDENTIALS_EXC
     try:
         payload = decode_token(token)
         username = payload.get("sub")
