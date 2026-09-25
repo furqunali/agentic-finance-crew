@@ -7,6 +7,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Robust error handling.**
+  - Backend: a last-resort `Exception` handler turns any *unhandled* error into
+    a clean, structured `500` (no leaked stack trace / bare HTML), logs it, and
+    counts it in the failure metric — 4xx handlers still take precedence.
+  - UI: the API helper detects an unreachable/down server (or a page opened as
+    a `file://` instead of served) and shows a clear message pointing to
+    `START.cmd`; login distinguishes "wrong password" (401) from "server down";
+    global `error` / `unhandledrejection` catchers surface problems as toasts
+    instead of failing silently; 5xx responses show a friendly retry message.
+- **`START.cmd`** one-click Windows launcher (installs deps on first run, starts
+  the server, opens the console) — removes the "opened the HTML directly / server
+  not running" confusion.
 - **Web console (UI).** A self-contained single-page app served at `/ui`
   (bare `/` redirects there), talking to the API with the login JWT:
   - Login + role-aware navigation (Employee / Finance Manager / Auditor / Admin).
