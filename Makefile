@@ -6,7 +6,7 @@ IMAGE  ?= agentic-finance-crew
 PORT   ?= 8000
 
 .DEFAULT_GOAL := help
-.PHONY: help install test demo run migrate migration docker-build docker-run docker-up clean
+.PHONY: help install test demo eval run migrate migration docker-build docker-run docker-up clean
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -20,6 +20,9 @@ test:  ## Run the full test suite
 
 demo:  ## Run the CLI demo over the sample batch
 	$(PYTHON) run_demo.py
+
+eval:  ## Run the evaluation benchmark (1000 cases) and publish benchmark/
+	$(PYTHON) run_eval.py --n 1000
 
 run:  ## Start the FastAPI service with autoreload
 	$(PYTHON) -m uvicorn app:app --reload --port $(PORT)

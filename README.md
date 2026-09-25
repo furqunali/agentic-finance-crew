@@ -14,7 +14,8 @@
   <img src="https://img.shields.io/badge/PostgreSQL-persisted-336791?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL">
   <img src="https://img.shields.io/badge/Auth-JWT%20%2B%20RBAC-000000?style=flat-square&logo=jsonwebtokens&logoColor=white" alt="JWT + RBAC">
   <img src="https://img.shields.io/badge/Observability-Prometheus-E6522C?style=flat-square&logo=prometheus&logoColor=white" alt="Prometheus">
-  <img src="https://img.shields.io/badge/tests-62%20passing-2ea44f?style=flat-square" alt="tests">
+  <img src="https://img.shields.io/badge/benchmark-1000%20cases%20·%20100%25%20·%200%20false%20approvals-0d9488?style=flat-square" alt="benchmark">
+  <img src="https://img.shields.io/badge/tests-65%20passing-2ea44f?style=flat-square" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT">
 </p>
 
@@ -83,6 +84,7 @@ All three call the **same shared tools** for the hard rules, and all funnel thro
 - **Immutable audit trail** — each decision logs the full lifecycle (who requested it → what the AI recommended → which rules fired → who approved it → timestamps, reason, model/version). The machine verdict is never overwritten by a human resolution.
 - **Auth & RBAC** — JWT bearer tokens with four roles (**Employee / Finance Manager / Auditor / Admin**); the approver's identity comes from the token, not the request body.
 - **Observability** — Prometheus metrics at `/metrics` (decisions, latency, HTTP, failures, LLM tokens/cost), structured JSON logging, and per-decision latency / token / cost stored on every record.
+- **Evaluated, not just built** — a reproducible benchmark of **1,000 synthetic cases** scored against an independent policy oracle: **100% accuracy, 0 false approvals**, violation & duplicate F1 = 1.0. A CI safety gate fails the build on any false approval.
 - **Runs with zero secrets** via the local engine — great for demos, CI and offline dev.
 - **FastAPI service** (`/auth/*`, `/approve`, `/approve/batch`, `/decisions`, `/review-queue`, `/audit`, `/health`) with OpenAPI docs at `/docs`.
 - **Fully containerized** (multi-stage, non-root, healthcheck) and **Kubernetes-ready**.
@@ -124,7 +126,7 @@ cd agentic-finance-crew
 pip install -e ".[dev]"
 
 python run_demo.py          # run the crew over the sample batch (no key needed)
-pytest -q                   # 62 tests, all green
+pytest -q                   # 65 tests, all green
 uvicorn app:app --reload    # API at http://localhost:8000/docs
 ```
 
@@ -312,7 +314,7 @@ curl -s "http://localhost:8000/audit?step=final_action&limit=50"
 
 ```bash
 pip install -e ".[dev]"      # pytest + httpx + langgraph
-pytest -q                    # 62 tests: domain logic, API, engines, persistence, audit, auth/RBAC, observability, error paths
+pytest -q                    # 65 tests: domain logic, API, engines, persistence, audit, auth/RBAC, observability, evaluation, error paths
 python run_demo.py           # end-to-end CLI smoke test over the sample batch
 ```
 
@@ -353,6 +355,38 @@ curl -s http://localhost:8000/metrics | grep afc_decisions_total
 The Kubernetes `Deployment` carries `prometheus.io/scrape` annotations so a
 cluster Prometheus picks the endpoint up automatically.
 
+## 🧪 Evaluation benchmark
+
+What turns *"I built an AI finance agent"* into *"I **engineered and evaluated**
+a governed decision system."* A reproducible benchmark generates synthetic
+expense cases **with ground truth from an independent policy oracle** (not the
+system's own `decide()`, so agreement is a real cross-check), runs them through
+the pipeline, and scores the outcome.
+
+Latest published run — **1,000 cases** (`benchmark/RESULTS.md`, [`results.json`](benchmark/results.json)):
+
+| Metric | Result |
+|--------|--------|
+| **Decision accuracy** | **100.00%** |
+| **False approvals** (auto-approved something policy blocks) | **0** ✅ |
+| False rejections · over-escalations | 0 · 0 |
+| Auto-approved / escalated / rejected | 43.1% / 52.1% / 4.8% |
+| Policy-violation detection (P / R / F1) | 1.000 / 1.000 / 1.000 |
+| Duplicate detection (P / R / F1) | 1.000 / 1.000 / 1.000 |
+| Latency (ms): mean / p95 | ~2.1 / ~4.1 |
+| Tokens / cost | 0 / $0.00 (deterministic engine; the real crew reports actual usage) |
+
+```bash
+python run_eval.py                 # 1000 cases -> benchmark/RESULTS.md + results.json
+python run_eval.py --n 500 --seed 7
+python run_eval.py --check         # non-zero exit if any false approval or accuracy < 0.99
+```
+
+The `--check` gate runs in **CI on every push**, so a regression that let the
+system auto-approve something it shouldn't would fail the build. When the real
+CrewAI engine is enabled, the same benchmark scores the crew and surfaces any
+divergence from the policy (plus its real token cost and latency).
+
 ## 🚢 Deployment
 
 | Target | How | Notes |
@@ -376,7 +410,8 @@ cluster Prometheus picks the endpoint up automatically.
 - ✅ **Immutable audit trail + human-review queue** (who approved, rules fired, model/version; approve/reject workflow) — *done*.
 - ✅ **Authentication & RBAC** (JWT; Employee / Finance Manager / Auditor / Admin) gating every action — *done*.
 - ✅ **Observability** — Prometheus metrics, structured logs, per-decision latency / token / cost / failure-rate — *done*.
-- **Evaluation benchmark** — 500–1,000 synthetic cases scoring accuracy, violation/duplicate detection, false approve/reject, escalation rate, latency & cost.
+- ✅ **Evaluation benchmark** — 1,000 synthetic cases scoring accuracy, violation/duplicate detection, false approve/reject, escalation, latency & cost; published + CI safety gate — *done*.
+- Receipt/invoice ingestion (CSV/Excel batch upload; PDF/image OCR) and Slack/email approval actions.
 - Add **eval cases** scoring the crew's rationale quality against the deterministic ground truth.
 - Slack / email approval actions for the human-in-the-loop step.
 - Deploy the FastAPI service (runs key-free in local mode) as a public live demo.
@@ -390,6 +425,7 @@ A [`Makefile`](Makefile) wraps the everyday commands:
 | `make install` | `pip install -e ".[dev]"` (base + dev deps) |
 | `make test` | Run the full pytest suite |
 | `make migrate` | Apply DB migrations (`alembic upgrade head`) |
+| `make eval` | Run the evaluation benchmark and publish `benchmark/` |
 | `make demo` | Run the CLI demo over the sample batch |
 | `make run` | Start the API with autoreload at `:8000` |
 | `make docker-build` | Build the Docker image |
@@ -400,4 +436,4 @@ Run `make help` to list them.
 
 ---
 
-<sub>Built by <b>Furqan Ali</b> — Senior AI Engineer. Architecture, agent design and DevOps by the author. Data is fully synthetic.</sub>
+<sub>A <b>governed, evaluated enterprise AI decision system</b> — multi-agent reasoning behind a policy guardrail, with auth/RBAC, a persisted audit trail, observability, and a published benchmark. Built by <b>Furqan Ali</b> — Senior AI Engineer. Architecture, agent design and DevOps by the author. Data is fully synthetic.</sub>

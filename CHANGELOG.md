@@ -7,6 +7,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Evaluation benchmark.**
+  - `finance_crew.evaluation` + `run_eval.py` generate 500–1,000 deterministic
+    synthetic cases **with ground truth from an independent policy oracle** and
+    score: accuracy, policy-violation & duplicate detection (P/R/F1), false
+    approvals / rejections, over-escalation, escalation rate, latency and cost.
+  - Published results in `benchmark/RESULTS.md` + `benchmark/results.json`
+    (1,000 cases: 100% accuracy, **0 false approvals**, violation & duplicate
+    F1 = 1.0).
+  - `run_eval.py --check` is a **CI safety gate** — the build fails on any false
+    approval or accuracy < 0.99. `make eval` publishes a fresh report.
 - **Observability.**
   - Prometheus metrics at `GET /metrics`: decisions by outcome/engine, human
     resolutions, per-decision latency histogram, HTTP throughput + latency
