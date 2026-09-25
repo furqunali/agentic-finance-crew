@@ -27,6 +27,8 @@ jobs:
         run: pytest -q
       - name: Smoke-test the CLI demo (local engine, no keys)
         run: python run_demo.py
+      - name: Evaluation benchmark — safety gate (0 false approvals)
+        run: python run_eval.py --n 300 --check
 
   postgres:
     name: Postgres integration (migrations + persistence)

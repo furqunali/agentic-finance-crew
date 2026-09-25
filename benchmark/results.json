@@ -1,0 +1,30 @@
+{
+  "engine": "local",
+  "total_cases": 300,
+  "accuracy": 1.0,
+  "false_approvals": 0,
+  "false_approval_rate": 0.0,
+  "false_rejections": 0,
+  "over_escalations": 0,
+  "auto_approval_rate": 0.4233,
+  "escalation_rate": 0.5,
+  "rejection_rate": 0.0767,
+  "violation_detection": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0
+  },
+  "duplicate_detection": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0
+  },
+  "latency_ms": {
+    "mean": 0.5978,
+    "p50": 0.5875,
+    "p95": 1.1435,
+    "max": 2.1932
+  },
+  "tokens_total": 0,
+  "cost_usd_total": 0.0
+}
