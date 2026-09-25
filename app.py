@@ -166,6 +166,19 @@ def _handle_conflict(_request: Any, exc: ConflictError) -> JSONResponse:
     return JSONResponse(status_code=409, content=_error_payload(409, str(exc)))
 
 
+@app.exception_handler(Exception)
+def _handle_unexpected(request: Request, exc: Exception) -> JSONResponse:
+    """Last-resort safety net: any *unhandled* error becomes a clean, structured
+    500 (never a leaked stack trace / bare HTML), is logged, and is counted in
+    the failure metric. Specific handlers above (4xx) still take precedence."""
+    logger.exception("unhandled error on %s %s", request.method, request.url.path)
+    try:
+        observability.FAILURES.labels("unhandled").inc()
+    except Exception:  # pragma: no cover - metrics must never mask the real error
+        pass
+    return JSONResponse(status_code=500, content=_error_payload(500, "internal server error"))
+
+
 @app.get("/health")
 def health() -> dict[str, Any]:
     return {"status": "ok", "engine": Settings.from_env().active_engine}

@@ -170,20 +170,36 @@
 "use strict";
 const S = { token: null, user: null };
 const $ = (s,r=document)=>r.querySelector(s);
+
+// ---- global error catchers: surface problems instead of failing silently ----
+window.addEventListener("error", e=>{ try{ toast("Something went wrong: "+(e.message||"unexpected error"),"err"); }catch(_){} });
+window.addEventListener("unhandledrejection", e=>{
+  const m=(e && e.reason && (e.reason.message||e.reason)) || "unexpected error";
+  if(String(m)==="unauthorized") return;                 // already handled by logout
+  try{ toast(String(m),"err"); }catch(_){}
+});
 const CATS = ["travel","meals","software","equipment","other"];
 const ROLE_LABEL = {employee:"Employee",finance_manager:"Finance Manager",auditor:"Auditor",admin:"Admin"};
 
-// ---- API helper ----
+// ---- API helper (with network/error handling) ----
+const NET_ERR = "Cannot reach the server. Make sure it's running (double-click START.cmd) and that you opened http://localhost:8000/ — not the file directly.";
 async function api(path, {method="GET", body=null, form=false}={}){
   const headers = {};
   if(S.token) headers["Authorization"] = "Bearer "+S.token;
   let payload = body;
   if(body && !form){ headers["Content-Type"]="application/json"; payload = JSON.stringify(body); }
-  const res = await fetch(path, {method, headers, body:payload});
+  let res;
+  try{
+    res = await fetch(path, {method, headers, body:payload});
+  }catch(e){
+    // fetch only rejects on network failure (server down, offline, opened as file://)
+    throw new Error(NET_ERR);
+  }
   if(res.status===401){ doLogout(); toast("Session expired — please sign in.","err"); throw new Error("unauthorized"); }
   let data=null; try{ data = await res.json(); }catch(e){}
   if(!res.ok){
-    const msg = (data && data.detail && (data.detail.message||data.detail)) || (data && data.error && data.error.message) || ("Request failed ("+res.status+")");
+    let msg = (data && data.detail && (data.detail.message||data.detail)) || (data && data.error && data.error.message) || ("Request failed ("+res.status+")");
+    if(res.status>=500) msg = "Server error — please try again. If it persists, check the server window. ("+res.status+")";
     throw new Error(typeof msg==="string"?msg:JSON.stringify(msg));
   }
   return data;
@@ -209,9 +225,13 @@ $("#loginForm").addEventListener("submit", async e=>{
   e.preventDefault();
   const btn=$("#loginBtn"); btn.disabled=true; btn.innerHTML='<span class="spin"></span> Signing in…';
   try{
+    if(!$("#u").value.trim() || !$("#p").value){ toast("Enter both username and password.","err"); return; }
     const body=new URLSearchParams({username:$("#u").value.trim(), password:$("#p").value});
-    const res=await fetch("/auth/login",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
-    if(!res.ok) throw new Error("Incorrect username or password");
+    let res;
+    try{ res=await fetch("/auth/login",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body}); }
+    catch(e){ throw new Error(NET_ERR); }
+    if(res.status===401){ throw new Error("Incorrect username or password."); }
+    if(!res.ok){ throw new Error("Login failed ("+res.status+"). Please try again."); }
     const data=await res.json();
     S.token=data.access_token;
     localStorage.setItem("afc_token",S.token);
@@ -575,7 +595,7 @@ async function createUser(){
 // ---- auto-login from stored token ----
 (async function(){
   const t=localStorage.getItem("afc_token");
-  if(t){ S.token=t; try{ await boot(); }catch(e){ doLogout(); } }
+  if(t){ S.token=t; try{ await boot(); }catch(e){ doLogout(); if(e && e.message && e.message!=="unauthorized") toast(e.message,"err"); } }
 })();
 </script>
 </body>

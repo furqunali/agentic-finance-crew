@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/Observability-Prometheus-E6522C?style=flat-square&logo=prometheus&logoColor=white" alt="Prometheus">
   <img src="https://img.shields.io/badge/benchmark-1000%20cases%20·%20100%25%20·%200%20false%20approvals-0d9488?style=flat-square" alt="benchmark">
   <img src="https://img.shields.io/badge/UI-web%20console-1c3d5a?style=flat-square" alt="web console">
-  <img src="https://img.shields.io/badge/tests-68%20passing-2ea44f?style=flat-square" alt="tests">
+  <img src="https://img.shields.io/badge/tests-70%20passing-2ea44f?style=flat-square" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT">
 </p>
 
@@ -128,7 +128,7 @@ cd agentic-finance-crew
 pip install -e ".[dev]"
 
 python run_demo.py          # run the crew over the sample batch (no key needed)
-pytest -q                   # 68 tests, all green
+pytest -q                   # 70 tests, all green
 uvicorn app:app --reload    # web console at http://localhost:8000/ui · API docs at /docs
 ```
 
@@ -343,7 +343,7 @@ curl -s "http://localhost:8000/audit?step=final_action&limit=50"
 
 ```bash
 pip install -e ".[dev]"      # pytest + httpx + langgraph
-pytest -q                    # 68 tests: domain logic, API, engines, persistence, audit, auth/RBAC, observability, evaluation, UI, error paths
+pytest -q                    # 70 tests: domain logic, API, engines, persistence, audit, auth/RBAC, observability, evaluation, UI, error paths
 python run_demo.py           # end-to-end CLI smoke test over the sample batch
 ```
 
