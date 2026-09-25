@@ -7,6 +7,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Audit trail + human-in-the-loop review workflow.**
+  - Every decision now records an immutable, append-only audit trail
+    (`request_received → ai_reasoning → policy_evaluation → decision →
+    human_review → final_action`) in a new `audit_events` table.
+  - `DecisionRecord` enriched with the audit fields the domain calls for:
+    `requested_by`, `ai_recommendation`, `rules_fired`, `model_version`,
+    lifecycle `status`, and `resolved_by` / `resolved_at` / `resolution_note`.
+  - **Review queue + resolution API**: `GET /review-queue`,
+    `POST /decisions/{id}/approve`, `POST /decisions/{id}/reject`,
+    `GET /decisions/{id}/audit`, and a global `GET /audit` log.
+  - Human resolutions are layered on without mutating the machine verdict, so
+    the record always preserves *what the AI recommended* vs *what the human
+    decided*. Resolving a non-pending item returns `409`; a missing id `404`.
+  - Alembic migration `0002_audit_trail` (safe column adds + new table);
+    `/approve` responses now return the full stored record.
 - **Persistence layer (database).** Every decision served over the API is now
   written to a durable system-of-record:
   - SQLAlchemy 2.0 ORM (`DecisionRecord`) with a repository layer and a

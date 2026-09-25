@@ -18,3 +18,13 @@ class ConfigurationError(FinanceCrewError):
 
 class ValidationError(FinanceCrewError):
     """Raised when an incoming payload cannot be turned into a valid request."""
+
+
+class NotFoundError(FinanceCrewError):
+    """Raised when a referenced record (e.g. a decision id) does not exist."""
+
+
+class ConflictError(FinanceCrewError):
+    """Raised when an operation is invalid for a record's current state — e.g.
+    trying to human-approve a decision that was already auto-resolved or that
+    is not awaiting review."""
