@@ -102,3 +102,14 @@ def test_non_admin_cannot_register_users():
     resp = manager.post("/auth/register", json={"username": "sneaky",
                                                 "password": "s3cret-pw", "role": "admin"})
     assert resp.status_code == 403
+
+
+def test_auth_disabled_mode_needs_no_login(monkeypatch):
+    """AUTH_DISABLED=1 opens everything as admin with no token (local convenience)."""
+    monkeypatch.setenv("AUTH_DISABLED", "1")
+    c = TestClient(app)  # no Authorization header at all
+    me = c.get("/auth/me")
+    assert me.status_code == 200 and me.json()["role"] == "admin"
+    assert c.get("/decisions").status_code == 200          # normally audit-only
+    assert c.post("/approve", json={"id": "NA-1", "employee": "e", "category": "software",
+                                    "amount": 149, "has_receipt": True}).status_code == 200

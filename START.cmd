@@ -33,18 +33,27 @@ if not exist ".setup_done" (
   echo.
 )
 
+REM --- pick a free port (8000, else 8001/8002) in case one is already in use ---
+set PORT=8000
+netstat -an | findstr ":8000" | findstr /I "LISTENING" >nul && set PORT=8001
+netstat -an | findstr ":8001" | findstr /I "LISTENING" >nul && if "%PORT%"=="8001" set PORT=8002
+
+REM --- Local convenience: no login on this machine. Do NOT use in production. ---
+set AUTH_DISABLED=1
+
 echo ------------------------------------------------------------
-echo   Login:   username = admin     password = admin
-echo   The app will open in your browser in a few seconds.
-echo   KEEP THIS WINDOW OPEN while using the app.
-echo   Close this window to stop the server.
+echo   Local mode: NO login required - it opens straight in.
+echo   Opening:  http://localhost:%PORT%/
+echo   Give it ~5 seconds. If you see 404 or a blank page, just
+echo   REFRESH the browser once the server says "Uvicorn running".
+echo   KEEP THIS WINDOW OPEN while using the app (close it to stop).
 echo ------------------------------------------------------------
 echo.
 
-REM --- open the browser to the console after the server has a moment to start ---
-start "" cmd /c "timeout /t 4 >nul & start "" http://localhost:8000/"
+REM --- open the browser AFTER the server has had time to start ---
+start "" cmd /c "timeout /t 6 >nul & start "" http://localhost:%PORT%/"
 
 REM --- run the server (this blocks; closing the window stops it) ---
-python -m uvicorn app:app --port 8000
+python -m uvicorn app:app --port %PORT%
 
 pause

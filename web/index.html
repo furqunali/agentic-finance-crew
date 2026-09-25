@@ -248,11 +248,12 @@ $("#themeBtn").addEventListener("click",()=>applyTheme(document.body.classList.c
 applyTheme(localStorage.getItem("afc_theme")||"light");
 
 // ---- boot ----
-async function boot(){
-  S.user = await api("/auth/me");
+async function boot(){ S.user = await api("/auth/me"); renderApp(); }
+function renderApp(){
   $("#login").style.display="none"; $("#app").style.display="block";
   $("#whoami").textContent = S.user.full_name || S.user.username;
   $("#roleChip").textContent = ROLE_LABEL[S.user.role]||S.user.role;
+  $("#logoutBtn").style.display = S.noauth ? "none" : "";   // no logout in no-login mode
   buildNav();
   go(navItems()[0].id);
 }
@@ -593,9 +594,18 @@ async function createUser(){
 }
 
 // ---- auto-login from stored token ----
+// ---- initial auth probe: no-login mode or a stored token skip the login screen ----
 (async function(){
   const t=localStorage.getItem("afc_token");
-  if(t){ S.token=t; try{ await boot(); }catch(e){ doLogout(); if(e && e.message && e.message!=="unauthorized") toast(e.message,"err"); } }
+  const headers={}; if(t) headers.Authorization="Bearer "+t;
+  let res;
+  try{ res=await fetch("/auth/me",{headers}); }
+  catch(e){ toast(NET_ERR,"err"); return; }        // server down -> stay on login, explain why
+  if(res.ok){                                       // 200 with no token => AUTH_DISABLED (no-login) mode
+    S.user=await res.json(); if(t) S.token=t; S.noauth=!t;
+    renderApp();
+  }
+  // otherwise 401 -> the login screen stays visible (no noisy toast on first load)
 })();
 </script>
 </body>
