@@ -7,6 +7,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Web console (UI).** A self-contained single-page app served at `/ui`
+  (bare `/` redirects there), talking to the API with the login JWT:
+  - Login + role-aware navigation (Employee / Finance Manager / Auditor / Admin).
+  - Submit a single expense; **bulk CSV upload** (client-side parse → batch)
+    with **results CSV export** and a downloadable template.
+  - Review queue with one-click approve/reject + note; decisions table with
+    filters (outcome/employee) and **CSV export**; per-decision **audit-trail
+    timeline** modal; users admin; overview with KPI tiles + donut chart.
+  - **Dark mode** and a 🔊 **Listen** (read-aloud) option via browser speech
+    synthesis. Static bundle (no build step), shipped in the Docker image.
 - **Evaluation benchmark.**
   - `finance_crew.evaluation` + `run_eval.py` generate 500–1,000 deterministic
     synthetic cases **with ground truth from an independent policy oracle** and

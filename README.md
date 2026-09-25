@@ -15,7 +15,8 @@
   <img src="https://img.shields.io/badge/Auth-JWT%20%2B%20RBAC-000000?style=flat-square&logo=jsonwebtokens&logoColor=white" alt="JWT + RBAC">
   <img src="https://img.shields.io/badge/Observability-Prometheus-E6522C?style=flat-square&logo=prometheus&logoColor=white" alt="Prometheus">
   <img src="https://img.shields.io/badge/benchmark-1000%20cases%20·%20100%25%20·%200%20false%20approvals-0d9488?style=flat-square" alt="benchmark">
-  <img src="https://img.shields.io/badge/tests-65%20passing-2ea44f?style=flat-square" alt="tests">
+  <img src="https://img.shields.io/badge/UI-web%20console-1c3d5a?style=flat-square" alt="web console">
+  <img src="https://img.shields.io/badge/tests-68%20passing-2ea44f?style=flat-square" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT">
 </p>
 
@@ -85,8 +86,9 @@ All three call the **same shared tools** for the hard rules, and all funnel thro
 - **Auth & RBAC** — JWT bearer tokens with four roles (**Employee / Finance Manager / Auditor / Admin**); the approver's identity comes from the token, not the request body.
 - **Observability** — Prometheus metrics at `/metrics` (decisions, latency, HTTP, failures, LLM tokens/cost), structured JSON logging, and per-decision latency / token / cost stored on every record.
 - **Evaluated, not just built** — a reproducible benchmark of **1,000 synthetic cases** scored against an independent policy oracle: **100% accuracy, 0 false approvals**, violation & duplicate F1 = 1.0. A CI safety gate fails the build on any false approval.
+- **Web console (UI)** at `/ui` — a professional single-page app: login, role-aware nav, submit, **bulk CSV upload**, review queue (approve/reject), decisions with filters + **CSV export**, audit-trail timeline, users admin, an overview with charts, dark mode, and a 🔊 **Listen** (read-aloud) option.
 - **Runs with zero secrets** via the local engine — great for demos, CI and offline dev.
-- **FastAPI service** (`/auth/*`, `/approve`, `/approve/batch`, `/decisions`, `/review-queue`, `/audit`, `/health`) with OpenAPI docs at `/docs`.
+- **FastAPI service** (`/auth/*`, `/approve`, `/approve/batch`, `/decisions`, `/review-queue`, `/audit`, `/metrics`, `/health`) with OpenAPI docs at `/docs` and a web console at `/ui`.
 - **Fully containerized** (multi-stage, non-root, healthcheck) and **Kubernetes-ready**.
 - **CI on every push** — tests across Python 3.10–3.12 + a Docker build/health check.
 
@@ -126,8 +128,8 @@ cd agentic-finance-crew
 pip install -e ".[dev]"
 
 python run_demo.py          # run the crew over the sample batch (no key needed)
-pytest -q                   # 65 tests, all green
-uvicorn app:app --reload    # API at http://localhost:8000/docs
+pytest -q                   # 68 tests, all green
+uvicorn app:app --reload    # web console at http://localhost:8000/ui · API docs at /docs
 ```
 
 > Prefer `make`? `make install && make test && make demo` — see [Common tasks](#-common-tasks).
@@ -218,6 +220,27 @@ Every `/approve` response now carries a `record_id` pointing at the stored row.
 Interactive OpenAPI docs are always at [`/docs`](http://localhost:8000/docs).
 Malformed payloads return a clean `422`; an empty or oversized batch is
 rejected before any work runs.
+
+## 🖥️ Web console (UI)
+
+A self-contained single-page app is served at **`/ui`** (the bare host `/`
+redirects there). It talks to the API with the JWT from `/auth/login` and
+adapts to the signed-in user's role.
+
+```bash
+uvicorn app:app --port 8000     # then open http://localhost:8000/  ->  /ui
+```
+
+- **Login** and a role-aware sidebar (Employee / Finance Manager / Auditor / Admin).
+- **Submit** a single expense and see the decision card (risk, rationale, rules fired).
+- **Bulk upload (CSV)** — drop or paste a spreadsheet, decide the whole batch, and **export the results** as CSV.
+- **Review queue** with one-click **Approve / Reject** + note (managers/admin).
+- **Decisions** table with **filters** (outcome, employee) and **CSV export**; click any row for its **audit-trail timeline**.
+- **Audit log**, **Users** admin (create accounts/roles), and an **Overview** with KPI tiles + a decision-mix donut chart.
+- **Dark mode** toggle and a 🔊 **Listen** button that reads decisions aloud (browser speech synthesis).
+
+It's a static bundle (no build step, inlined CSS/JS), shipped in the Docker
+image and served by FastAPI — nothing extra to deploy.
 
 ## 🔐 Authentication & RBAC
 
@@ -314,7 +337,7 @@ curl -s "http://localhost:8000/audit?step=final_action&limit=50"
 
 ```bash
 pip install -e ".[dev]"      # pytest + httpx + langgraph
-pytest -q                    # 65 tests: domain logic, API, engines, persistence, audit, auth/RBAC, observability, evaluation, error paths
+pytest -q                    # 68 tests: domain logic, API, engines, persistence, audit, auth/RBAC, observability, evaluation, UI, error paths
 python run_demo.py           # end-to-end CLI smoke test over the sample batch
 ```
 

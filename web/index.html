@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentic Finance Crew — Console</title>
+<style>
+  :root{
+    --navy:#1c3d5a;--navy-2:#264c6f;--teal:#0d9488;--teal-d:#0b7d73;--teal-l:#5eead4;
+    --ink:#1f2933;--mut:#64748b;--line:#e2e8f0;--bg:#f1f5f9;--card:#ffffff;
+    --ok:#0f7d4d;--ok-bg:#e7f6ee;--warn:#b45309;--warn-bg:#fdf3e3;--no:#b91c1c;--no-bg:#fdeaea;
+    --shadow:0 1px 3px rgba(16,42,67,.08),0 6px 18px rgba(16,42,67,.06);
+  }
+  body.dark{
+    --ink:#e6edf3;--mut:#93a4b8;--line:#2a3b4d;--bg:#0b1620;--card:#132433;
+    --ok-bg:#0f2e22;--warn-bg:#33280f;--no-bg:#341717;--shadow:0 1px 3px rgba(0,0,0,.4),0 8px 22px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",Calibri,system-ui,Arial,sans-serif;background:var(--bg);color:var(--ink);transition:background .2s,color .2s}
+  button{font-family:inherit;cursor:pointer}
+  a{color:var(--teal)}
+
+  /* ---------- Login ---------- */
+  #login{min-height:100vh;display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(1200px 600px at 20% -10%,#2b567e 0%,var(--navy) 45%,#12293c 100%)}
+  .login-card{background:var(--card);width:360px;max-width:92vw;border-radius:16px;padding:30px 28px;box-shadow:var(--shadow)}
+  .brandmark{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+  .brandmark .dot{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--teal),var(--navy));display:grid;place-items:center;color:#fff;font-weight:800}
+  .login-card h1{font-size:19px;margin:2px 0 2px;color:var(--navy)}
+  .login-card p{margin:0 0 18px;color:var(--mut);font-size:13px}
+  label{display:block;font-size:12.5px;color:var(--mut);margin:12px 0 5px;font-weight:600}
+  input,select,textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;font-size:14px;background:#fff;color:var(--ink)}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 3px rgba(13,148,136,.15)}
+  .btn{border:none;border-radius:9px;padding:10px 16px;font-weight:600;font-size:14px;background:var(--teal);color:#fff;transition:.15s}
+  .btn:hover{background:var(--teal-d)}
+  .btn:disabled{opacity:.6;cursor:not-allowed}
+  .btn.ghost{background:#eef2f6;color:var(--navy)}
+  .btn.ghost:hover{background:#e2e8f0}
+  .btn.ok{background:var(--ok)}.btn.no{background:var(--no)}
+  .btn.sm{padding:6px 11px;font-size:12.5px;border-radius:7px}
+  .btn.block{width:100%;margin-top:18px;padding:11px}
+  .hint{margin-top:14px;font-size:12px;color:var(--mut);text-align:center}
+
+  /* ---------- App shell ---------- */
+  #app{display:none;min-height:100vh}
+  header.top{background:linear-gradient(100deg,var(--navy),var(--teal-d));color:#fff;
+    display:flex;align-items:center;gap:14px;padding:12px 20px;box-shadow:var(--shadow);position:sticky;top:0;z-index:20}
+  header.top .dot{width:30px;height:30px;border-radius:8px;background:rgba(255,255,255,.16);display:grid;place-items:center;font-weight:800}
+  header.top h1{font-size:16px;margin:0;font-weight:700;letter-spacing:.2px}
+  header.top .sp{flex:1}
+  .chip{background:rgba(255,255,255,.16);border-radius:20px;padding:5px 12px;font-size:12.5px;font-weight:600}
+  .chip.role{text-transform:capitalize}
+  .layout{display:flex;min-height:calc(100vh - 56px)}
+  nav.side{width:210px;background:#0f2436;padding:16px 10px;flex-shrink:0}
+  nav.side button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:transparent;color:#cbd5e1;border:none;padding:10px 12px;border-radius:9px;font-size:14px;margin-bottom:2px}
+  nav.side button:hover{background:rgba(255,255,255,.06);color:#fff}
+  nav.side button.active{background:linear-gradient(90deg,var(--teal),var(--teal-d));color:#fff;font-weight:600}
+  nav.side .ic{width:18px;text-align:center}
+  main{flex:1;padding:24px 28px;overflow-x:hidden}
+  @media(max-width:760px){nav.side{width:100%;display:flex;flex-wrap:wrap;gap:4px;position:sticky;top:56px;z-index:10}
+    nav.side button{width:auto}.layout{flex-direction:column}main{padding:16px}}
+
+  h2.page{margin:0 0 4px;color:var(--navy);font-size:22px}
+  .sub{color:var(--mut);font-size:13px;margin:0 0 20px}
+
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
+  .card{background:var(--card);border-radius:14px;padding:18px 18px;box-shadow:var(--shadow)}
+  .card h3{margin:0 0 12px;color:var(--navy);font-size:15px}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;margin-bottom:18px}
+  .kpi{background:var(--card);border-radius:14px;padding:16px 18px;box-shadow:var(--shadow);border-left:4px solid var(--teal)}
+  .kpi .n{font-size:26px;font-weight:800;color:var(--navy)}
+  .kpi .l{font-size:12.5px;color:var(--mut);margin-top:2px}
+  .kpi.rev{border-left-color:var(--warn)} .kpi.rej{border-left-color:var(--no)} .kpi.app{border-left-color:var(--ok)}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:760px){.grid2{grid-template-columns:1fr}}
+
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line)}
+  th{color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.3px}
+  tbody tr:hover{background:#f8fafc;cursor:pointer}
+  .tblwrap{overflow-x:auto;background:var(--card);border-radius:14px;padding:8px 12px;box-shadow:var(--shadow)}
+
+  .pill{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700}
+  .pill.app{background:var(--ok-bg);color:var(--ok)} .pill.rev{background:var(--warn-bg);color:var(--warn)}
+  .pill.rej{background:var(--no-bg);color:var(--no)} .pill.mut{background:#eef2f6;color:var(--mut)}
+
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .field{margin-bottom:12px}
+  .decision{border-radius:14px;padding:18px;margin-top:18px;box-shadow:var(--shadow);background:#fff;border-left:6px solid var(--mut)}
+  .decision.app{border-left-color:var(--ok)} .decision.rev{border-left-color:var(--warn)} .decision.rej{border-left-color:var(--no)}
+  .decision .big{font-size:18px;font-weight:800;color:var(--navy)}
+  .meta{display:flex;gap:18px;flex-wrap:wrap;color:var(--mut);font-size:13px;margin-top:8px}
+  .meta b{color:var(--ink)}
+  .rules{margin:10px 0 0;padding-left:18px;color:var(--no);font-size:13px}
+
+  /* review queue item */
+  .qitem{background:var(--card);border-radius:14px;padding:16px 18px;box-shadow:var(--shadow);margin-bottom:14px}
+  .qitem .hd{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+
+  /* modal */
+  .modal-bg{position:fixed;inset:0;background:rgba(15,36,54,.55);display:none;align-items:center;justify-content:center;z-index:50;padding:18px}
+  .modal{background:#fff;border-radius:16px;max-width:640px;width:100%;max-height:86vh;overflow:auto;box-shadow:var(--shadow)}
+  .modal .mh{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:#fff}
+  .modal .mh h3{margin:0;color:var(--navy)}
+  .modal .mb{padding:18px 20px}
+  .x{border:none;background:#eef2f6;border-radius:8px;width:30px;height:30px;font-size:16px;color:var(--navy)}
+
+  /* timeline */
+  .tl{list-style:none;margin:0;padding:0}
+  .tl li{position:relative;padding:0 0 16px 24px;border-left:2px solid var(--line)}
+  .tl li:last-child{border-left-color:transparent}
+  .tl li::before{content:"";position:absolute;left:-7px;top:2px;width:12px;height:12px;border-radius:50%;background:var(--teal)}
+  .tl .step{font-weight:700;color:var(--navy);font-size:13.5px;text-transform:capitalize}
+  .tl .d{color:var(--mut);font-size:13px;margin:2px 0}
+  .tl .t{color:#94a3b8;font-size:11.5px}
+
+  /* donut */
+  .legend{display:flex;flex-direction:column;gap:6px;font-size:13px}
+  .legend .sw{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:8px;vertical-align:-1px}
+
+  /* toast + spinner */
+  #toasts{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:10px;z-index:80}
+  .toast{background:#0f2436;color:#fff;padding:11px 16px;border-radius:10px;box-shadow:var(--shadow);font-size:13.5px;max-width:340px;border-left:4px solid var(--teal)}
+  .toast.err{border-left-color:var(--no)} .toast.ok{border-left-color:var(--ok)}
+  .spin{display:inline-block;width:15px;height:15px;border:2px solid rgba(255,255,255,.5);border-top-color:#fff;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .empty{color:var(--mut);font-size:14px;padding:30px;text-align:center}
+  .listen{background:#eef2f6;color:var(--navy);border:none;border-radius:8px;padding:6px 11px;font-size:12.5px;font-weight:600}
+  .listen:hover{background:#e2e8f0}
+</style>
+</head>
+<body>
+
+<!-- ================= LOGIN ================= -->
+<div id="login">
+  <form class="login-card" id="loginForm">
+    <div class="brandmark"><div class="dot">AF</div><div><h1>Agentic Finance Crew</h1></div></div>
+    <p>Sign in to the expense-approval console.</p>
+    <label for="u">Username</label>
+    <input id="u" autocomplete="username" required>
+    <label for="p">Password</label>
+    <input id="p" type="password" autocomplete="current-password" required>
+    <button class="btn block" id="loginBtn" type="submit">Sign in</button>
+    <div class="hint">First run seeds <b>admin / admin</b> — change it in production.</div>
+  </form>
+</div>
+
+<!-- ================= APP ================= -->
+<div id="app">
+  <header class="top">
+    <div class="dot">AF</div>
+    <h1>Agentic Finance Crew</h1>
+    <span class="sp"></span>
+    <span class="chip" id="whoami">—</span>
+    <span class="chip role" id="roleChip">—</span>
+    <button class="btn ghost sm" id="themeBtn" title="Toggle dark mode">🌙</button>
+    <button class="btn ghost sm" id="logoutBtn">Logout</button>
+  </header>
+  <div class="layout">
+    <nav class="side" id="nav"></nav>
+    <main id="main"></main>
+  </div>
+</div>
+
+<div class="modal-bg" id="modalBg"><div class="modal"><div class="mh"><h3 id="modalTitle">Details</h3><button class="x" onclick="closeModal()">×</button></div><div class="mb" id="modalBody"></div></div></div>
+<div id="toasts"></div>
+
+<script>
+"use strict";
+const S = { token: null, user: null };
+const $ = (s,r=document)=>r.querySelector(s);
+const CATS = ["travel","meals","software","equipment","other"];
+const ROLE_LABEL = {employee:"Employee",finance_manager:"Finance Manager",auditor:"Auditor",admin:"Admin"};
+
+// ---- API helper ----
+async function api(path, {method="GET", body=null, form=false}={}){
+  const headers = {};
+  if(S.token) headers["Authorization"] = "Bearer "+S.token;
+  let payload = body;
+  if(body && !form){ headers["Content-Type"]="application/json"; payload = JSON.stringify(body); }
+  const res = await fetch(path, {method, headers, body:payload});
+  if(res.status===401){ doLogout(); toast("Session expired — please sign in.","err"); throw new Error("unauthorized"); }
+  let data=null; try{ data = await res.json(); }catch(e){}
+  if(!res.ok){
+    const msg = (data && data.detail && (data.detail.message||data.detail)) || (data && data.error && data.error.message) || ("Request failed ("+res.status+")");
+    throw new Error(typeof msg==="string"?msg:JSON.stringify(msg));
+  }
+  return data;
+}
+
+// ---- toast + modal ----
+function toast(msg, kind=""){ const t=document.createElement("div"); t.className="toast "+kind; t.textContent=msg; $("#toasts").appendChild(t); setTimeout(()=>t.remove(),4200); }
+function openModal(title, html){ $("#modalTitle").textContent=title; $("#modalBody").innerHTML=html; $("#modalBg").style.display="flex"; }
+function closeModal(){ $("#modalBg").style.display="none"; }
+$("#modalBg").addEventListener("click",e=>{ if(e.target.id==="modalBg") closeModal(); });
+
+// ---- text-to-speech (Listen) ----
+function speak(text){
+  if(!("speechSynthesis" in window)){ toast("Read-aloud not supported in this browser.","err"); return; }
+  window.speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text); u.rate=1.0; u.pitch=1; window.speechSynthesis.speak(u);
+  toast("🔊 Reading aloud…","ok");
+}
+function listenBtn(text){ return `<button class="listen" onclick="speak(decodeURIComponent('${encodeURIComponent(text)}'))">🔊 Listen</button>`; }
+
+// ---- auth ----
+$("#loginForm").addEventListener("submit", async e=>{
+  e.preventDefault();
+  const btn=$("#loginBtn"); btn.disabled=true; btn.innerHTML='<span class="spin"></span> Signing in…';
+  try{
+    const body=new URLSearchParams({username:$("#u").value.trim(), password:$("#p").value});
+    const res=await fetch("/auth/login",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
+    if(!res.ok) throw new Error("Incorrect username or password");
+    const data=await res.json();
+    S.token=data.access_token;
+    localStorage.setItem("afc_token",S.token);
+    await boot();
+  }catch(err){ toast(err.message,"err"); }
+  finally{ btn.disabled=false; btn.textContent="Sign in"; }
+});
+function doLogout(){ S.token=null; S.user=null; localStorage.removeItem("afc_token"); $("#app").style.display="none"; $("#login").style.display="flex"; }
+$("#logoutBtn").addEventListener("click", doLogout);
+
+// ---- theme ----
+function applyTheme(t){ document.body.classList.toggle("dark",t==="dark"); $("#themeBtn").textContent=t==="dark"?"☀️":"🌙"; localStorage.setItem("afc_theme",t); }
+$("#themeBtn").addEventListener("click",()=>applyTheme(document.body.classList.contains("dark")?"light":"dark"));
+applyTheme(localStorage.getItem("afc_theme")||"light");
+
+// ---- boot ----
+async function boot(){
+  S.user = await api("/auth/me");
+  $("#login").style.display="none"; $("#app").style.display="block";
+  $("#whoami").textContent = S.user.full_name || S.user.username;
+  $("#roleChip").textContent = ROLE_LABEL[S.user.role]||S.user.role;
+  buildNav();
+  go(navItems()[0].id);
+}
+
+// ---- role-aware nav ----
+const can = { review:["finance_manager","admin"], audit:["auditor","finance_manager","admin"], admin:["admin"] };
+const has = g => can[g].includes(S.user.role);
+function navItems(){
+  const items=[{id:"overview",ic:"📊",label:"Overview",need:"audit"},
+    {id:"submit",ic:"➕",label:"Submit Expense",need:null},
+    {id:"bulk",ic:"📄",label:"Bulk Upload (CSV)",need:null},
+    {id:"queue",ic:"🗂️",label:"Review Queue",need:"review"},
+    {id:"decisions",ic:"📁",label:"Decisions",need:"audit"},
+    {id:"audit",ic:"🧾",label:"Audit Log",need:"audit"},
+    {id:"users",ic:"👤",label:"Users",need:"admin"}];
+  return items.filter(i=>!i.need || has(i.need));
+}
+function buildNav(){
+  $("#nav").innerHTML = navItems().map(i=>`<button data-go="${i.id}"><span class="ic">${i.ic}</span>${i.label}</button>`).join("");
+  $("#nav").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>go(b.dataset.go)));
+}
+function setActive(id){ $("#nav").querySelectorAll("button").forEach(b=>b.classList.toggle("active",b.dataset.go===id)); }
+
+function go(id){ setActive(id); const v=VIEWS[id]; if(v) v(); }
+function loading(){ $("#main").innerHTML='<div class="empty"><span class="spin" style="border-color:#cbd5e1;border-top-color:var(--teal)"></span> Loading…</div>'; }
+const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const pillClass = d => d==="auto_approved"?"app":d==="needs_human_review"?"rev":d==="rejected"?"rej":"mut";
+const pillText = d => ({auto_approved:"Auto-approved",needs_human_review:"Needs review",rejected:"Rejected"}[d]||d);
+const money = (a,c="USD") => (c==="USD"?"$":c+" ")+Number(a).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+
+// ---- CSV helpers ----
+function parseCSV(text){
+  const lines=text.replace(/\r/g,"").split("\n").filter(l=>l.trim().length);
+  if(!lines.length) return [];
+  const split=l=>{ const out=[],re=/("([^"]*(?:""[^"]*)*)"|[^,]*)(,|$)/g; let m; while((m=re.exec(l))){ out.push((m[2]!==undefined?m[2].replace(/""/g,'"'):m[1]).trim()); if(m[3]==="") break; } return out; };
+  const head=split(lines[0]).map(h=>h.toLowerCase().trim());
+  return lines.slice(1).map(l=>{ const c=split(l), o={}; head.forEach((h,i)=>o[h]=c[i]!==undefined?c[i]:""); return o; });
+}
+function toCSV(rows, cols){
+  const esc=v=>{ v=v==null?"":String(v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+  return [cols.join(",")].concat(rows.map(r=>cols.map(c=>esc(r[c])).join(","))).join("\n");
+}
+function download(name, text){
+  const blob=new Blob([text],{type:"text/csv;charset=utf-8"}), url=URL.createObjectURL(blob);
+  const a=document.createElement("a"); a.href=url; a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+
+// ================= VIEWS =================
+const VIEWS = {};
+
+// ---- Submit ----
+VIEWS.submit = function(){
+  $("#main").innerHTML = `
+    <h2 class="page">Submit an expense</h2>
+    <p class="sub">The crew validates, checks policy and routes it — instantly.</p>
+    <div class="grid2">
+      <div class="card">
+        <h3>New request</h3>
+        <div class="field"><label>Reference ID</label><input id="f_id" placeholder="EXP-1001"></div>
+        <div class="field"><label>Employee</label><input id="f_emp" placeholder="A. Rivera"></div>
+        <div class="row">
+          <div class="field" style="flex:1"><label>Category</label>
+            <select id="f_cat">${CATS.map(c=>`<option>${c}</option>`).join("")}</select></div>
+          <div class="field" style="flex:1"><label>Amount (USD)</label><input id="f_amt" type="number" min="0" step="0.01" placeholder="149.00"></div>
+        </div>
+        <div class="field"><label><input type="checkbox" id="f_rcpt" style="width:auto;margin-right:8px">Receipt attached</label></div>
+        <div class="field"><label>Description (optional)</label><input id="f_desc" placeholder="Annual software licence"></div>
+        <button class="btn" id="submitBtn">Submit for decision</button>
+      </div>
+      <div id="resultPane"><div class="card"><h3>Decision</h3><div class="empty">Submit a request to see the crew's decision here.</div></div></div>
+    </div>`;
+  $("#submitBtn").addEventListener("click", submitExpense);
+};
+async function submitExpense(){
+  const btn=$("#submitBtn"); btn.disabled=true; btn.innerHTML='<span class="spin"></span> Deciding…';
+  try{
+    const payload={ id:$("#f_id").value.trim()||("EXP-"+Date.now()), employee:$("#f_emp").value.trim(),
+      category:$("#f_cat").value, amount:parseFloat($("#f_amt").value||"0"),
+      has_receipt:$("#f_rcpt").checked, description:$("#f_desc").value.trim() };
+    if(!payload.employee){ toast("Employee is required.","err"); return; }
+    const r=await api("/approve",{method:"POST",body:payload});
+    renderDecision(r); toast("Decision recorded (#"+r.record_id+")","ok");
+  }catch(err){ toast(err.message,"err"); }
+  finally{ btn.disabled=false; btn.textContent="Submit for decision"; }
+}
+function renderDecision(r){
+  const cls=pillClass(r.decision);
+  const rules=(r.rules_fired||[]).length?`<ul class="rules">${r.rules_fired.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>`:"";
+  const say=`Decision for ${r.request_id}: ${pillText(r.decision)}. ${r.rationale}`;
+  $("#resultPane").innerHTML=`
+    <div class="decision ${cls}">
+      <div class="row" style="justify-content:space-between">
+        <span class="big">${pillText(r.decision)}</span>
+        <span>${listenBtn(say)}</span>
+      </div>
+      <div style="margin-top:6px">${esc(r.rationale)}</div>
+      ${rules}
+      <div class="meta">
+        <span>Risk <b>${r.risk_score}/100</b></span>
+        <span>Status <b>${esc(r.status)}</b></span>
+        <span>Engine <b>${esc(r.engine)}</b></span>
+        <span>Latency <b>${Number(r.latency_ms).toFixed(1)} ms</b></span>
+        <span>Record <b>#${r.record_id}</b></span>
+      </div>
+    </div>`;
+}
+
+// ---- Bulk upload (CSV) ----
+VIEWS.bulk = function(){
+  $("#main").innerHTML=`
+    <h2 class="page">Bulk upload (CSV)</h2>
+    <p class="sub">Upload a spreadsheet of expenses and decide them all at once. Columns: <b>id, employee, category, amount, has_receipt</b> (description, currency optional).</p>
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <h3 style="margin:0">Choose a CSV file, or paste rows</h3>
+        <button class="btn ghost sm" id="tmplBtn">⬇ Download template</button>
+      </div>
+      <div class="field" style="margin-top:12px"><input type="file" id="csvFile" accept=".csv,text/csv"></div>
+      <div class="field"><textarea id="csvText" rows="6" placeholder="id,employee,category,amount,has_receipt&#10;EXP-1,A. Rivera,software,149,true&#10;EXP-2,B. Chan,meals,180,false"></textarea></div>
+      <button class="btn" id="bulkBtn">Process batch</button>
+      <span id="bulkCount" class="sub" style="margin-left:10px"></span>
+    </div>
+    <div id="bulkResult"></div>`;
+  $("#tmplBtn").addEventListener("click",()=>download("expenses_template.csv",
+    "id,employee,category,amount,has_receipt,description\nEXP-1001,A. Rivera,software,149,true,Annual licence\nEXP-1002,B. Chan,meals,180,false,Team lunch\n"));
+  $("#csvFile").addEventListener("change",e=>{ const f=e.target.files[0]; if(!f)return; const r=new FileReader();
+    r.onload=()=>{ $("#csvText").value=r.result; toast("Loaded "+f.name,"ok"); }; r.readAsText(f); });
+  $("#bulkBtn").addEventListener("click", runBulk);
+};
+async function runBulk(){
+  const btn=$("#bulkBtn");
+  try{
+    const rows=parseCSV($("#csvText").value);
+    if(!rows.length){ toast("No rows found. Add a header + at least one row.","err"); return; }
+    if(rows.length>500){ toast("Max 500 rows per batch.","err"); return; }
+    const payload=rows.map((r,i)=>({ id:r.id||("BULK-"+(i+1)), employee:r.employee||"", category:(r.category||"other").toLowerCase(),
+      amount:parseFloat(r.amount||"0"), has_receipt:/^(1|true|yes|y)$/i.test(r.has_receipt||""), description:r.description||"", currency:r.currency||"USD" }));
+    btn.disabled=true; btn.innerHTML='<span class="spin"></span> Processing '+payload.length+'…';
+    const res=await api("/approve/batch",{method:"POST",body:payload});
+    let app=0,rev=0,rej=0; res.forEach(r=>{ if(r.decision==="auto_approved")app++; else if(r.decision==="needs_human_review")rev++; else rej++; });
+    $("#bulkCount").textContent=`${res.length} processed · ${app} approved · ${rev} to review · ${rej} rejected`;
+    const rowsHtml=res.map(r=>`<tr><td>${esc(r.request_id)}</td><td>${esc(r.employee)}</td><td>${esc(r.category)}</td><td>${money(r.amount,r.currency)}</td>
+      <td><span class="pill ${pillClass(r.decision)}">${pillText(r.decision)}</span></td><td>${r.risk_score}</td><td>${esc(r.rationale)}</td></tr>`).join("");
+    $("#bulkResult").innerHTML=`<div class="row" style="justify-content:space-between;margin:18px 0 8px"><h3 style="margin:0;color:var(--navy)">Results</h3>
+      <button class="btn ghost sm" id="expBulk">⬇ Export results CSV</button></div>
+      <div class="tblwrap"><table><thead><tr><th>Ref</th><th>Employee</th><th>Category</th><th>Amount</th><th>Decision</th><th>Risk</th><th>Rationale</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`;
+    $("#expBulk").addEventListener("click",()=>download("batch_results.csv",
+      toCSV(res.map(r=>({request_id:r.request_id,employee:r.employee,category:r.category,amount:r.amount,decision:r.decision,risk_score:r.risk_score,status:r.status,rationale:r.rationale})),
+        ["request_id","employee","category","amount","decision","risk_score","status","rationale"])));
+    toast("Batch processed: "+res.length+" rows","ok");
+  }catch(err){ toast(err.message,"err"); }
+  finally{ btn.disabled=false; btn.textContent="Process batch"; }
+}
+
+// ---- Review queue ----
+VIEWS.queue = async function(){
+  loading();
+  try{
+    const q=await api("/review-queue?limit=100");
+    if(!q.items.length){ $("#main").innerHTML=`<h2 class="page">Review queue</h2><p class="sub">Items awaiting your sign-off.</p><div class="card"><div class="empty">🎉 Nothing waiting — the queue is clear.</div></div>`; return; }
+    $("#main").innerHTML=`<h2 class="page">Review queue <span class="pill rev">${q.items.length}</span></h2>
+      <p class="sub">Approve or reject items the crew escalated to a human.</p><div id="q"></div>`;
+    $("#q").innerHTML=q.items.map(it=>{
+      const rules=(it.rules_fired||[]).map(x=>`<li>${esc(x)}</li>`).join("");
+      const say=`${it.employee} requests ${money(it.amount,it.currency)} for ${it.category}. ${it.rationale}`;
+      return `<div class="qitem" id="q_${it.id}">
+        <div class="hd"><div><b>${esc(it.employee)}</b> · ${esc(it.category)} · <b>${money(it.amount,it.currency)}</b>
+          &nbsp;<span class="pill mut">${esc(it.request_id)}</span></div>
+          <div class="row"><span class="pill rev">Risk ${it.risk_score}</span>${listenBtn(say)}</div></div>
+        <div style="color:var(--mut);font-size:13.5px;margin:8px 0">${esc(it.rationale)}</div>
+        ${rules?`<ul class="rules">${rules}</ul>`:""}
+        <div class="row" style="margin-top:10px">
+          <input placeholder="Note (optional)" id="note_${it.id}" style="flex:1;min-width:180px">
+          <button class="btn ok sm" onclick="resolve(${it.id},'approve')">✓ Approve</button>
+          <button class="btn no sm" onclick="resolve(${it.id},'reject')">✕ Reject</button>
+        </div></div>`;
+    }).join("");
+  }catch(err){ toast(err.message,"err"); }
+};
+async function resolve(id, action){
+  try{
+    const note=($("#note_"+id)||{}).value||"";
+    const r=await api(`/decisions/${id}/${action}`,{method:"POST",body:{note}});
+    const el=$("#q_"+id); if(el){ el.style.transition=".3s"; el.style.opacity=".35"; setTimeout(()=>el.remove(),320); }
+    toast(`#${id} ${r.status.replace("_"," ")} by ${r.resolved_by}`,"ok");
+  }catch(err){ toast(err.message,"err"); }
+}
+
+// ---- Decisions (with filters + export) ----
+const DFILTER = {decision:"", employee:""};
+VIEWS.decisions = async function(){
+  $("#main").innerHTML=`<h2 class="page">Decisions</h2><p class="sub">Filter, inspect and export the decision history · click a row for its audit trail.</p>
+    <div class="card" style="margin-bottom:16px"><div class="row">
+      <div><label>Outcome</label><select id="fltDec">
+        <option value="">All outcomes</option><option value="auto_approved">Auto-approved</option>
+        <option value="needs_human_review">Needs review</option><option value="rejected">Rejected</option></select></div>
+      <div style="flex:1;min-width:160px"><label>Employee</label><input id="fltEmp" placeholder="filter by employee…"></div>
+      <div style="align-self:flex-end"><button class="btn sm" id="applyFlt">Apply</button></div>
+      <div style="align-self:flex-end"><button class="btn ghost sm" id="expDec">⬇ Export CSV</button></div>
+    </div></div>
+    <div id="decTbl"></div>`;
+  $("#fltDec").value=DFILTER.decision; $("#fltEmp").value=DFILTER.employee;
+  $("#applyFlt").addEventListener("click",()=>{ DFILTER.decision=$("#fltDec").value; DFILTER.employee=$("#fltEmp").value.trim(); loadDecisions(); });
+  $("#expDec").addEventListener("click", exportDecisions);
+  loadDecisions();
+};
+function decQuery(limit=200){ const p=new URLSearchParams({limit}); if(DFILTER.decision)p.set("decision",DFILTER.decision); if(DFILTER.employee)p.set("employee",DFILTER.employee); return p.toString(); }
+async function loadDecisions(){
+  $("#decTbl").innerHTML='<div class="empty"><span class="spin" style="border-color:#cbd5e1;border-top-color:var(--teal)"></span> Loading…</div>';
+  try{
+    const d=await api("/decisions?"+decQuery(200));
+    const rows=d.items.map(it=>`<tr onclick="showAudit(${it.id})">
+      <td>#${it.id}</td><td>${esc(it.request_id)}</td><td>${esc(it.employee)}</td>
+      <td>${esc(it.category)}</td><td>${money(it.amount,it.currency)}</td>
+      <td><span class="pill ${pillClass(it.decision)}">${pillText(it.decision)}</span></td>
+      <td>${it.risk_score}</td><td><span class="pill ${it.final_action==='approved'?'app':it.final_action==='rejected'?'rej':'mut'}">${it.final_action}</span></td>
+    </tr>`).join("");
+    $("#decTbl").innerHTML=`<p class="sub">${d.total} total · showing ${d.count}.</p>
+      <div class="tblwrap"><table><thead><tr><th>ID</th><th>Ref</th><th>Employee</th><th>Category</th><th>Amount</th><th>Decision</th><th>Risk</th><th>Final</th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="8" class="empty">No matching decisions.</td></tr>'}</tbody></table></div>`;
+  }catch(err){ toast(err.message,"err"); }
+}
+async function exportDecisions(){
+  try{
+    const d=await api("/decisions?"+decQuery(500));
+    if(!d.items.length){ toast("Nothing to export.","err"); return; }
+    download("decisions.csv", toCSV(d.items,
+      ["id","request_id","employee","category","amount","currency","decision","ai_recommendation","risk_score","status","final_action","model_version","resolved_by","created_at"]));
+    toast("Exported "+d.items.length+" rows","ok");
+  }catch(err){ toast(err.message,"err"); }
+}
+async function showAudit(id){
+  try{
+    const a=await api(`/decisions/${id}/audit`);
+    const d=a.decision;
+    const say=`Decision ${d.request_id}: ${pillText(d.decision)}. ${d.rationale}. Final action ${d.final_action}.`;
+    const trail=a.trail.map(e=>`<li><div class="step">${e.step.replace(/_/g," ")}</div><div class="d">${esc(e.detail)}</div><div class="t">${esc(e.actor)} · ${esc((e.created_at||"").replace("T"," ").slice(0,19))}</div></li>`).join("");
+    openModal(`Decision #${d.id} — ${d.request_id}`,`
+      <div class="row" style="justify-content:space-between">
+        <span class="pill ${pillClass(d.decision)}">${pillText(d.decision)}</span>${listenBtn(say)}</div>
+      <div class="meta" style="margin:10px 0 16px">
+        <span>${esc(d.employee)}</span><span><b>${money(d.amount,d.currency)}</b> · ${esc(d.category)}</span>
+        <span>Risk <b>${d.risk_score}</b></span><span>Model <b>${esc(d.model_version)}</b></span>
+        <span>Final <b>${esc(d.final_action)}</b></span>${d.resolved_by?`<span>By <b>${esc(d.resolved_by)}</b></span>`:""}</div>
+      <h3 style="color:var(--navy);font-size:14px;margin:0 0 12px">Audit trail</h3>
+      <ul class="tl">${trail}</ul>`);
+  }catch(err){ toast(err.message,"err"); }
+}
+
+// ---- Audit log ----
+VIEWS.audit = async function(){
+  loading();
+  try{
+    const a=await api("/audit?limit=80");
+    const rows=a.items.map(e=>`<tr><td>#${e.decision_id}</td><td>${e.step.replace(/_/g," ")}</td><td>${esc(e.actor)}</td><td>${esc(e.detail)}</td><td class="t">${esc((e.created_at||"").replace("T"," ").slice(0,19))}</td></tr>`).join("");
+    $("#main").innerHTML=`<h2 class="page">Audit log</h2><p class="sub">Append-only record of every lifecycle event across all decisions.</p>
+      <div class="tblwrap"><table><thead><tr><th>Decision</th><th>Step</th><th>Actor</th><th>Detail</th><th>When</th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="5" class="empty">No events yet.</td></tr>'}</tbody></table></div>`;
+  }catch(err){ toast(err.message,"err"); }
+};
+
+// ---- Overview ----
+VIEWS.overview = async function(){
+  loading();
+  try{
+    const d=await api("/decisions?limit=500");
+    const items=d.items, total=d.total;
+    let app=0,rev=0,rej=0,pend=0,riskSum=0,latSum=0;
+    items.forEach(it=>{ if(it.decision==="auto_approved")app++; else if(it.decision==="needs_human_review")rev++; else if(it.decision==="rejected")rej++;
+      if(it.status==="pending_review")pend++; riskSum+=it.risk_score; latSum+=it.latency_ms||0; });
+    const n=items.length||1;
+    const donut=makeDonut([["Auto-approved",app,"#0f7d4d"],["Needs review",rev,"#b45309"],["Rejected",rej,"#b91c1c"]]);
+    $("#main").innerHTML=`
+      <h2 class="page">Overview</h2><p class="sub">Live snapshot across ${total} decision(s).</p>
+      <div class="kpis">
+        <div class="kpi"><div class="n">${total}</div><div class="l">Total decisions</div></div>
+        <div class="kpi app"><div class="n">${app}</div><div class="l">Auto-approved</div></div>
+        <div class="kpi rev"><div class="n">${pend}</div><div class="l">Pending your review</div></div>
+        <div class="kpi rej"><div class="n">${rej}</div><div class="l">Rejected (invalid)</div></div>
+        <div class="kpi"><div class="n">${(riskSum/n).toFixed(0)}</div><div class="l">Avg risk (recent)</div></div>
+        <div class="kpi"><div class="n">${(latSum/n).toFixed(1)}<span style="font-size:14px"> ms</span></div><div class="l">Avg latency (recent)</div></div>
+      </div>
+      <div class="grid2">
+        <div class="card"><h3>Decision mix (recent)</h3>
+          <div class="row" style="gap:22px"><div>${donut.svg}</div><div class="legend">${donut.legend}</div></div></div>
+        <div class="card"><h3>Quick actions</h3>
+          <p class="sub" style="margin:0 0 12px">Jump straight in:</p>
+          <div class="row">
+            <button class="btn sm" onclick="go('submit')">➕ Submit expense</button>
+            ${has("review")?`<button class="btn ghost sm" onclick="go('queue')">🗂️ Review queue (${pend})</button>`:""}
+            <button class="btn ghost sm" onclick="go('decisions')">📁 All decisions</button>
+          </div>
+          <p class="sub" style="margin:18px 0 0">Signed in as <b>${esc(S.user.username)}</b> — role <b>${ROLE_LABEL[S.user.role]||S.user.role}</b>.</p>
+        </div>
+      </div>`;
+  }catch(err){ toast(err.message,"err"); }
+};
+function makeDonut(data){
+  const total=data.reduce((s,d)=>s+d[1],0)||1, R=52,C=2*Math.PI*R; let off=0;
+  const rings=data.map(([lbl,val,col])=>{ const frac=val/total, len=frac*C;
+    const seg=`<circle r="${R}" cx="70" cy="70" fill="none" stroke="${col}" stroke-width="20" stroke-dasharray="${len} ${C-len}" stroke-dashoffset="${-off}" transform="rotate(-90 70 70)"></circle>`;
+    off+=len; return seg; }).join("");
+  const svg=`<svg width="140" height="140" viewBox="0 0 140 140">${rings}
+    <circle r="40" cx="70" cy="70" fill="#fff"></circle>
+    <text x="70" y="66" text-anchor="middle" font-size="22" font-weight="800" fill="#1c3d5a">${total}</text>
+    <text x="70" y="84" text-anchor="middle" font-size="11" fill="#64748b">decisions</text></svg>`;
+  const legend=data.map(([lbl,val,col])=>`<div><span class="sw" style="background:${col}"></span>${lbl} — <b>${val}</b> (${Math.round(val/total*100)}%)</div>`).join("");
+  return {svg,legend};
+}
+
+// ---- Users (admin) ----
+VIEWS.users = async function(){
+  loading();
+  try{
+    const u=await api("/auth/users?limit=200");
+    const rows=u.items.map(x=>`<tr><td>#${x.id}</td><td>${esc(x.username)}</td><td>${esc(x.full_name||"")}</td><td><span class="pill mut">${ROLE_LABEL[x.role]||x.role}</span></td><td>${x.is_active?"✓":"—"}</td></tr>`).join("");
+    $("#main").innerHTML=`<h2 class="page">Users</h2><p class="sub">Manage accounts and roles (admin only).</p>
+      <div class="grid2">
+        <div class="tblwrap"><table><thead><tr><th>ID</th><th>Username</th><th>Name</th><th>Role</th><th>Active</th></tr></thead><tbody>${rows}</tbody></table></div>
+        <div class="card"><h3>Create user</h3>
+          <div class="field"><label>Username</label><input id="nu"></div>
+          <div class="field"><label>Full name</label><input id="nn"></div>
+          <div class="row"><div class="field" style="flex:1"><label>Role</label>
+            <select id="nr">${Object.keys(ROLE_LABEL).map(r=>`<option value="${r}">${ROLE_LABEL[r]}</option>`).join("")}</select></div>
+            <div class="field" style="flex:1"><label>Password</label><input id="np" type="password"></div></div>
+          <button class="btn" id="createUserBtn">Create user</button></div>
+      </div>`;
+    $("#createUserBtn").addEventListener("click", createUser);
+  }catch(err){ toast(err.message,"err"); }
+};
+async function createUser(){
+  try{
+    const body={username:$("#nu").value.trim(), full_name:$("#nn").value.trim(), role:$("#nr").value, password:$("#np").value};
+    if(!body.username||body.password.length<6){ toast("Username required, password ≥ 6 chars.","err"); return; }
+    await api("/auth/register",{method:"POST",body});
+    toast("User created: "+body.username,"ok"); VIEWS.users();
+  }catch(err){ toast(err.message,"err"); }
+}
+
+// ---- auto-login from stored token ----
+(async function(){
+  const t=localStorage.getItem("afc_token");
+  if(t){ S.token=t; try{ await boot(); }catch(e){ doLogout(); } }
+})();
+</script>
+</body>
+</html>
