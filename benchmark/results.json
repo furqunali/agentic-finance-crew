@@ -1,14 +1,14 @@
 {
   "engine": "local",
-  "total_cases": 300,
+  "total_cases": 1000,
   "accuracy": 1.0,
   "false_approvals": 0,
   "false_approval_rate": 0.0,
   "false_rejections": 0,
   "over_escalations": 0,
-  "auto_approval_rate": 0.4233,
-  "escalation_rate": 0.5,
-  "rejection_rate": 0.0767,
+  "auto_approval_rate": 0.431,
+  "escalation_rate": 0.521,
+  "rejection_rate": 0.048,
   "violation_detection": {
     "precision": 1.0,
     "recall": 1.0,
@@ -20,10 +20,10 @@
     "f1": 1.0
   },
   "latency_ms": {
-    "mean": 0.5978,
-    "p50": 0.5875,
-    "p95": 1.1435,
-    "max": 2.1932
+    "mean": 3.953,
+    "p50": 2.1417,
+    "p95": 9.0387,
+    "max": 262.0636
   },
   "tokens_total": 0,
   "cost_usd_total": 0.0

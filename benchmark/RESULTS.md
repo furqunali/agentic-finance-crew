@@ -1,6 +1,6 @@
 # Evaluation Benchmark — Results
 
-_Synthetic benchmark of **300 cases** (seed 42), engine `local`. Ground truth from an independent policy oracle._
+_Synthetic benchmark of **1000 cases** (seed 42), engine `local`. Ground truth from an independent policy oracle._
 
 ## Headline
 
@@ -12,9 +12,9 @@ _Synthetic benchmark of **300 cases** (seed 42), engine `local`. Ground truth fr
 
 | Outcome | Rate |
 |---------|------|
-| Auto-approved | 42.3% |
-| Escalated to human | 50.0% |
-| Rejected (invalid) | 7.7% |
+| Auto-approved | 43.1% |
+| Escalated to human | 52.1% |
+| Rejected (invalid) | 4.8% |
 
 ## Detection quality
 
@@ -25,7 +25,7 @@ _Synthetic benchmark of **300 cases** (seed 42), engine `local`. Ground truth fr
 
 ## Performance & cost
 
-- **Latency (ms):** mean 0.598 · p50 0.588 · p95 1.143 · max 2.193
+- **Latency (ms):** mean 3.953 · p50 2.142 · p95 9.039 · max 262.064
 - **Tokens:** 0  ·  **Cost:** $0.000000 _(the deterministic engine uses no LLM; the real crew reports actual usage here)_
 
 > No decision mismatches: the system's guardrail matched the independent policy oracle on every case.
