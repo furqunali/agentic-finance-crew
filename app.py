@@ -19,7 +19,7 @@ from typing import Any
 
 import jwt
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -42,6 +42,7 @@ from finance_crew.auth import (
 from finance_crew.config import Settings
 from finance_crew.db import get_session, init_db, session_scope
 from finance_crew.errors import ConfigurationError, ConflictError, NotFoundError, ValidationError
+from finance_crew.explain import build_decision_record, render_markdown
 from finance_crew.ratelimit import MUTATING_METHODS, RateLimiter, client_key
 from finance_crew.records import User
 from finance_crew.service import decide_and_store, decide_and_store_batch, resolve_decision
@@ -457,6 +458,23 @@ def decision_audit(
         )
     events = repository.get_audit_events(session, record_id)
     return {"decision": record.to_dict(), "trail": [e.to_dict() for e in events]}
+
+
+@app.get("/decisions/{record_id}/explanation", response_model=None)
+def decision_explanation(
+    record_id: int,
+    session: Session = Depends(get_session),
+    _user: User = Depends(require_roles(*CAN_AUDIT)),
+    format: str = Query("json", pattern="^(json|markdown)$", description="json or markdown"),
+) -> dict[str, Any] | PlainTextResponse:
+    """The per-decision **decision record** (AI transparency export): inputs
+    summary (PII-redacted), policy rules evaluated and fired, each agent step,
+    the final decision, who approved/rejected it and when. Built from the
+    stored record + audit trail, so it always matches the system of record."""
+    record = build_decision_record(session, record_id, Settings.from_env().policy)
+    if format == "markdown":
+        return PlainTextResponse(render_markdown(record), media_type="text/markdown; charset=utf-8")
+    return record
 
 
 @app.get("/audit")

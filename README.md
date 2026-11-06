@@ -17,7 +17,7 @@
   <img src="https://img.shields.io/badge/Observability-Prometheus-E6522C?style=flat-square&logo=prometheus&logoColor=white" alt="Prometheus">
   <img src="https://img.shields.io/badge/benchmark-1000%20cases%20·%20100%25%20·%200%20false%20approvals-0d9488?style=flat-square" alt="benchmark">
   <img src="https://img.shields.io/badge/UI-web%20console-1c3d5a?style=flat-square" alt="web console">
-  <img src="https://img.shields.io/badge/tests-196%20passing-2ea44f?style=flat-square" alt="tests">
+  <img src="https://img.shields.io/badge/tests-209%20passing-2ea44f?style=flat-square" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT">
 </p>
 
@@ -88,11 +88,12 @@ All three call the **same shared tools** for the hard rules, and all funnel thro
 - **Observability** — Prometheus metrics at `/metrics` (decisions, latency, HTTP, failures, LLM tokens/cost), structured JSON logging, and per-decision latency / token / cost stored on every record.
 - **Evaluated, not just built** — a reproducible benchmark of **1,000 synthetic cases** scored against an independent policy oracle: **100% accuracy, 0 false approvals**, violation & duplicate F1 = 1.0. A CI safety gate fails the build on any false approval.
 - **Web console (UI)** at `/ui` — a professional single-page app: login, role-aware nav, submit, **bulk CSV upload**, review queue (approve/reject), decisions with filters + **CSV export**, audit-trail timeline, users admin, an overview with charts, dark mode, and a 🔊 **Listen** (read-aloud) option.
+- **AI transparency pack** — a [`MODEL_CARD.md`](MODEL_CARD.md) (intended / out-of-scope use, limitations, human oversight, data handling, evaluation, EU AI Act risk reasoning) and a per-decision **decision record** at `/decisions/{id}/explanation` (JSON or Markdown).
 - **API rate limiting** — per-client token buckets (user / API key / IP) on every mutating endpoint, including login; `429` + `Retry-After`, counted in Prometheus. Stdlib only.
 - **Prompt-injection + PII guard** — every free-text field is screened before any LLM sees it: suspected injections are routed to a human (never auto-approved) with the reason in the audit trail; emails, phones, cards, IBANs and national IDs are redacted from prompts and logs (OWASP LLM01 / LLM02).
 - **MCP server** — the approval workflow as Model Context Protocol tools (JSON-RPC 2.0 over stdio, no new dependency) so AI assistants can submit expenses and query decisions — but never approve them.
 - **Runs with zero secrets** via the local engine — great for demos, CI and offline dev.
-- **FastAPI service** (`/auth/*`, `/approve`, `/approve/batch`, `/decisions`, `/review-queue`, `/audit`, `/metrics`, `/health`) with OpenAPI docs at `/docs` and a web console at `/ui`.
+- **FastAPI service** (`/auth/*`, `/approve`, `/approve/batch`, `/decisions`, `/decisions/{id}/explanation`, `/review-queue`, `/audit`, `/metrics`, `/health`) with OpenAPI docs at `/docs` and a web console at `/ui`.
 - **Fully containerized** (multi-stage, non-root, healthcheck) and **Kubernetes-ready**.
 - **CI on every push** — tests across Python 3.10–3.12 + a Docker build/health check.
 
@@ -132,7 +133,7 @@ cd agentic-finance-crew
 pip install -e ".[dev]"
 
 python run_demo.py          # run the crew over the sample batch (no key needed)
-pytest -q                   # 196 tests, all green
+pytest -q                   # 209 tests, all green
 uvicorn app:app --reload    # web console at http://localhost:8000/ui · API docs at /docs
 ```
 
@@ -396,7 +397,7 @@ curl -s "http://localhost:8000/audit?step=final_action&limit=50"
 
 ```bash
 pip install -e ".[dev]"      # pytest + httpx + langgraph
-pytest -q                    # 196 tests: domain logic, API, engines, persistence, audit, auth/RBAC, observability, evaluation, UI, MCP server, input guard, rate limiting, error paths
+pytest -q                    # 196 tests: domain logic, API, engines, persistence, audit, auth/RBAC, observability, evaluation, UI, MCP server, input guard, rate limiting, decision records, error paths
 python run_demo.py           # end-to-end CLI smoke test over the sample batch
 ```
 
@@ -495,6 +496,25 @@ edit / test locally  →  SYNC.cmd  →  GitHub Actions runs tests  →  badge +
 | **Docker Compose** | `docker compose up --build` | API on `http://localhost:8000`; healthcheck built in. |
 | **Docker** | `docker build -t agentic-finance-crew . && docker run -p 8000:8000 agentic-finance-crew` | Slim multi-stage, non-root image. |
 | **Kubernetes** | `kubectl apply -f k8s/` | Deployment (2 replicas, liveness/readiness probes, non-root) + Service. Keys come from a `Secret`, never plain values. |
+
+## 🔎 AI transparency (model card + decision records)
+
+- **[`MODEL_CARD.md`](MODEL_CARD.md)** — system-level card: how decisions are
+  made, intended and out-of-scope use, limitations, human oversight, data
+  handling, evaluation results, and an EU AI Act risk-classification
+  assessment (not high-risk in the intended use; what would make it high-risk).
+- **Decision record per verdict** — `GET /decisions/{id}/explanation`
+  (Auditor / Finance Manager / Admin) returns schema `afc.decision-record/v1`:
+  a PII-redacted inputs summary, the policy rules evaluated and fired,
+  input-guard findings, each agent step with actor + timestamp, the final
+  decision with engine/model version, who approved or rejected it and when,
+  and latency/tokens/cost. It is built from the stored record and its
+  append-only audit trail, so it always matches the system of record.
+
+```bash
+curl -s http://localhost:8000/decisions/7/explanation -H "Authorization: Bearer $TOKEN"
+curl -s "http://localhost:8000/decisions/7/explanation?format=markdown" -H "Authorization: Bearer $TOKEN" > decision-7.md
+```
 
 ## 🚦 Rate limiting
 

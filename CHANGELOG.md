@@ -7,6 +7,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **AI transparency pack.**
+  - `MODEL_CARD.md`: intended and out-of-scope use, limitations, human
+    oversight, data handling, evaluation results (1,000-case benchmark + CI
+    gate) and EU AI Act risk-classification reasoning.
+  - Per-decision **decision record** `GET /decisions/{id}/explanation`
+    (`finance_crew.explain`, schema `afc.decision-record/v1`; JSON or
+    `?format=markdown`): PII-redacted inputs summary, policy rules evaluated
+    and fired, input-guard findings, agent steps with actors and timestamps,
+    final decision with model version, who approved/rejected and when.
+    Built from the existing record + audit trail; Auditor / Finance Manager /
+    Admin only. 13 new tests.
 - **MCP server** (`finance_crew.mcp_server`, console script `afc-mcp`): exposes
   the approval workflow to AI assistants over the Model Context Protocol —
   dependency-free JSON-RPC 2.0 on stdio (`initialize` with version negotiation,
