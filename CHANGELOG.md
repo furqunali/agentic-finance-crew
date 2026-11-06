@@ -22,6 +22,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     stdio subprocess round-trip).
 
 ### Security
+- **Per-client API rate limiting** (`finance_crew.ratelimit`, stdlib token
+  bucket) on every mutating endpoint, including `/auth/login` (throttles
+  password guessing). Clients are keyed by JWT subject, then hashed `X-API-Key`,
+  then IP (`X-Forwarded-For` only with `RATE_LIMIT_TRUST_PROXY`). Over-limit
+  calls get `429` + `Retry-After`; allowed calls carry `RateLimit-Limit` /
+  `RateLimit-Remaining`. New metric `afc_rate_limited_total{method,path}`.
+  Configurable via `RATE_LIMIT_ENABLED` (default on), `RATE_LIMIT_PER_MINUTE`
+  (60), `RATE_LIMIT_BURST` (20). The test suite disables it globally and
+  exercises it with dedicated tests (15 new).
 - **Prompt-injection + PII input guard** (`finance_crew.guard`, OWASP LLM01 /
   LLM02). Every free-text request field is screened before reaching an LLM:
   instruction/role overrides, system-prompt exfiltration, tool/command

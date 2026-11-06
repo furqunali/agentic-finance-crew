@@ -17,6 +17,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+import jwt
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
@@ -33,6 +34,7 @@ from finance_crew.auth import (
     Role,
     authenticate,
     create_access_token,
+    decode_token,
     ensure_admin_seed,
     get_current_user,
     require_roles,
@@ -40,6 +42,7 @@ from finance_crew.auth import (
 from finance_crew.config import Settings
 from finance_crew.db import get_session, init_db, session_scope
 from finance_crew.errors import ConfigurationError, ConflictError, NotFoundError, ValidationError
+from finance_crew.ratelimit import MUTATING_METHODS, RateLimiter, client_key
 from finance_crew.records import User
 from finance_crew.service import decide_and_store, decide_and_store_batch, resolve_decision
 
@@ -63,6 +66,62 @@ app = FastAPI(
     description="Multi-agent expense-approval crew (CrewAI) with a policy guardrail.",
     lifespan=lifespan,
 )
+
+
+# Per-client token-bucket limiter for mutating endpoints (RATE_LIMIT_* env).
+# Kept on app.state so it can be swapped/reset (e.g. by tests) at runtime.
+app.state.rate_limiter = RateLimiter.from_env()
+
+
+def _rate_limit_client(request: Request, limiter: RateLimiter) -> str:
+    """Identify the caller: JWT subject > X-API-Key > client IP. The token is
+    signature-checked here only to pick a bucket; authorization still happens
+    in the route dependencies."""
+    user = None
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        try:
+            user = decode_token(auth[7:].strip()).get("sub")
+        except jwt.PyJWTError:  # invalid/expired token -> fall back to IP bucket
+            user = None
+    return client_key(
+        user=user,
+        api_key=request.headers.get("x-api-key"),
+        forwarded_for=request.headers.get("x-forwarded-for"),
+        client_host=request.client.host if request.client else None,
+        trust_proxy=limiter.trust_proxy,
+    )
+
+
+# Registered *before* the metrics middleware so that one wraps it and counts
+# 429s in afc_http_requests_total like any other response.
+@app.middleware("http")
+async def _rate_limit_middleware(request: Request, call_next):
+    """Refuse a client's mutating calls with 429 + Retry-After once its token
+    bucket is empty. Reads (GET), /health and /metrics are never limited."""
+    limiter: RateLimiter = request.app.state.rate_limiter
+    if not limiter.enabled or request.method not in MUTATING_METHODS:
+        return await call_next(request)
+    decision = limiter.check(_rate_limit_client(request, limiter))
+    headers = {
+        "RateLimit-Limit": str(decision.limit),
+        "RateLimit-Remaining": str(decision.remaining),
+    }
+    if not decision.allowed:
+        path = observability.normalize_path(request.url.path)
+        observability.RATE_LIMITED.labels(request.method, path).inc()
+        logger.warning("rate limit exceeded on %s %s", request.method, path)
+        headers["Retry-After"] = str(decision.retry_after)
+        return JSONResponse(
+            status_code=429,
+            content=_error_payload(
+                429, f"rate limit exceeded; retry after {decision.retry_after}s"
+            ),
+            headers=headers,
+        )
+    response = await call_next(request)
+    response.headers.update(headers)
+    return response
 
 
 @app.middleware("http")

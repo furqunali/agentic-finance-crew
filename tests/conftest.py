@@ -13,6 +13,9 @@ import os
 # secret so tokens minted here verify inside the app.
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["JWT_SECRET"] = "test-secret-not-for-production-0123456789"  # >=32 bytes
+# The suite fires many requests from one client; the limiter is exercised by
+# its own tests (test_ratelimit.py), which swap in an enabled instance.
+os.environ["RATE_LIMIT_ENABLED"] = "false"
 
 from finance_crew import repository  # noqa: E402
 from finance_crew.auth import Role, create_access_token  # noqa: E402
