@@ -40,6 +40,17 @@ def _write_initial_trail(session: Session, record: DecisionRecord, result: Appro
         session, record.id, Step.REQUEST_RECEIVED, record.requested_by or record.employee,
         f"{record.employee} requested {record.category} ${record.amount:,.2f}",
     )
+    analysis = result.analysis
+    if analysis.guard_findings or analysis.pii_kinds:
+        parts = []
+        if analysis.guard_findings:
+            parts.append(
+                "possible prompt injection -> routed to human review: "
+                + "; ".join(analysis.guard_findings)
+            )
+        if analysis.pii_kinds:
+            parts.append("PII redacted before LLM/logs: " + ", ".join(analysis.pii_kinds))
+        repository.add_audit_event(session, record.id, Step.INPUT_GUARD, "input-guard", " | ".join(parts))
     repository.add_audit_event(
         session, record.id, Step.AI_REASONING, actor,
         f"risk score {result.risk_score}/100, confidence {result.confidence:.2f}",
@@ -86,6 +97,8 @@ def _persist(
     _write_initial_trail(session, record, result)
 
     observability.DECISIONS.labels(result.decision.value, result.engine).inc()
+    for finding in result.analysis.guard_findings:
+        observability.INPUT_GUARD_FLAGS.labels(finding.split(": ", 1)[-1]).inc()
     observability.DECISION_LATENCY.observe(latency_ms / 1000.0)
     observability.record_llm_usage(result.engine, tokens, cost_usd)
     return record

@@ -22,6 +22,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     stdio subprocess round-trip).
 
 ### Security
+- **Prompt-injection + PII input guard** (`finance_crew.guard`, OWASP LLM01 /
+  LLM02). Every free-text request field is screened before reaching an LLM:
+  instruction/role overrides, system-prompt exfiltration, tool/command
+  smuggling, chat-template tokens and hidden Unicode (zero-width, bidi, tag
+  characters; NFKC-normalized). Suspicious requests become policy violations,
+  so the `decide()` guardrail routes them to human review — never
+  auto-approved — with the reason in `rules_fired`, a new `input_guard`
+  audit-trail step and the `afc_input_guard_flags_total` metric.
+- PII (emails, phones, Luhn-valid cards, mod-97-valid IBANs, SSN/CNIC/NINO-style
+  IDs) is redacted from text sent to the CrewAI LLM and from logs (a
+  `PIIRedactingFilter` on the API and MCP log handlers). Flagged fields are
+  withheld from the prompt entirely; the request is fenced as untrusted data.
+  The audit trail records only the PII *kinds* redacted, never the values.
+- 78 new tests (every pattern, every PII type, checksum validation, no false
+  positives on ordinary expense text and the sample batch, local + LangGraph
+  routing parity, API audit trail + metric).
 - The MCP surface has **no approve/reject tool** by design: an assistant can
   submit and read, but human sign-off of review items stays behind RBAC.
 

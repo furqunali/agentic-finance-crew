@@ -9,6 +9,7 @@ a model's discretion.
 from __future__ import annotations
 
 from .config import SpendPolicy
+from .guard import inspect_request
 from .models import ExpenseRequest, IntakeResult, PolicyAnalysis
 
 VALID_CATEGORIES = {"travel", "meals", "software", "equipment", "other"}
@@ -99,4 +100,13 @@ def analyze(request: ExpenseRequest, category: str, policy: SpendPolicy,
     if dup:
         violations = violations + ["possible duplicate of an earlier request"]
         risk = min(risk + 15, 100)
-    return PolicyAnalysis(violations=violations, risk_score=risk, is_possible_duplicate=dup)
+    # Input guard (OWASP LLM01): a suspected prompt-injection attempt is a
+    # policy violation, so decide() can never auto-approve it -> human review.
+    guard = inspect_request(request)
+    if guard.suspicious:
+        violations = violations + guard.as_violations()
+        risk = min(risk + 25, 100)
+    return PolicyAnalysis(
+        violations=violations, risk_score=risk, is_possible_duplicate=dup,
+        guard_findings=list(guard.findings), pii_kinds=list(guard.pii_kinds),
+    )

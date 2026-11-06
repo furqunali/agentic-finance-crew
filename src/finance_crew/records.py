@@ -49,6 +49,7 @@ class Step:
     """The stages every decision passes through, mirroring the pipeline."""
 
     REQUEST_RECEIVED = "request_received"
+    INPUT_GUARD = "input_guard"  # only written when the guard flags something
     AI_REASONING = "ai_reasoning"
     POLICY_EVALUATION = "policy_evaluation"
     DECISION = "decision"
