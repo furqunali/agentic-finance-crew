@@ -65,6 +65,11 @@ class PolicyAnalysis:
     violations: list[str] = field(default_factory=list)
     risk_score: int = 0  # 0 (safe) .. 100 (high risk)
     is_possible_duplicate: bool = False
+    # Input guard (see guard.py): injection findings route to a human; PII
+    # kinds are recorded (never the values) so the audit trail shows what was
+    # redacted before any LLM/log saw the text.
+    guard_findings: list[str] = field(default_factory=list)
+    pii_kinds: list[str] = field(default_factory=list)
 
 
 @dataclass

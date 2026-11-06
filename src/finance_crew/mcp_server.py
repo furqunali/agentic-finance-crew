@@ -384,6 +384,10 @@ def main() -> int:
         level=os.getenv("LOG_LEVEL", "INFO").upper(),
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
+    from .guard import PIIRedactingFilter
+
+    for handler in logging.getLogger().handlers:
+        handler.addFilter(PIIRedactingFilter())
     init_db()
     logger.info("MCP server %s %s ready on stdio", SERVER_NAME, __version__)
     try:

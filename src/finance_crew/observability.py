@@ -41,6 +41,9 @@ LLM_TOKENS = Counter(
 LLM_COST = Counter(
     "afc_llm_cost_usd_total", "LLM cost in USD", ["engine"]
 )
+INPUT_GUARD_FLAGS = Counter(
+    "afc_input_guard_flags_total", "Requests flagged by the input guard", ["category"]
+)
 
 
 def metrics_response_body() -> tuple[bytes, str]:
@@ -121,6 +124,10 @@ def configure_logging() -> None:
         handler.setFormatter(JsonFormatter())
     else:
         handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s"))
+    # Never ship PII (emails, cards, phones, IBANs, IDs) to the log platform.
+    from .guard import PIIRedactingFilter
+
+    handler.addFilter(PIIRedactingFilter())
     root = logging.getLogger()
     root.handlers = [handler]
     root.setLevel(getattr(logging, level, logging.INFO))

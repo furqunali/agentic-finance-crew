@@ -17,7 +17,7 @@
   <img src="https://img.shields.io/badge/Observability-Prometheus-E6522C?style=flat-square&logo=prometheus&logoColor=white" alt="Prometheus">
   <img src="https://img.shields.io/badge/benchmark-1000%20cases%20·%20100%25%20·%200%20false%20approvals-0d9488?style=flat-square" alt="benchmark">
   <img src="https://img.shields.io/badge/UI-web%20console-1c3d5a?style=flat-square" alt="web console">
-  <img src="https://img.shields.io/badge/tests-103%20passing-2ea44f?style=flat-square" alt="tests">
+  <img src="https://img.shields.io/badge/tests-181%20passing-2ea44f?style=flat-square" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT">
 </p>
 
@@ -88,6 +88,7 @@ All three call the **same shared tools** for the hard rules, and all funnel thro
 - **Observability** — Prometheus metrics at `/metrics` (decisions, latency, HTTP, failures, LLM tokens/cost), structured JSON logging, and per-decision latency / token / cost stored on every record.
 - **Evaluated, not just built** — a reproducible benchmark of **1,000 synthetic cases** scored against an independent policy oracle: **100% accuracy, 0 false approvals**, violation & duplicate F1 = 1.0. A CI safety gate fails the build on any false approval.
 - **Web console (UI)** at `/ui` — a professional single-page app: login, role-aware nav, submit, **bulk CSV upload**, review queue (approve/reject), decisions with filters + **CSV export**, audit-trail timeline, users admin, an overview with charts, dark mode, and a 🔊 **Listen** (read-aloud) option.
+- **Prompt-injection + PII guard** — every free-text field is screened before any LLM sees it: suspected injections are routed to a human (never auto-approved) with the reason in the audit trail; emails, phones, cards, IBANs and national IDs are redacted from prompts and logs (OWASP LLM01 / LLM02).
 - **MCP server** — the approval workflow as Model Context Protocol tools (JSON-RPC 2.0 over stdio, no new dependency) so AI assistants can submit expenses and query decisions — but never approve them.
 - **Runs with zero secrets** via the local engine — great for demos, CI and offline dev.
 - **FastAPI service** (`/auth/*`, `/approve`, `/approve/batch`, `/decisions`, `/review-queue`, `/audit`, `/metrics`, `/health`) with OpenAPI docs at `/docs` and a web console at `/ui`.
@@ -130,7 +131,7 @@ cd agentic-finance-crew
 pip install -e ".[dev]"
 
 python run_demo.py          # run the crew over the sample batch (no key needed)
-pytest -q                   # 103 tests, all green
+pytest -q                   # 181 tests, all green
 uvicorn app:app --reload    # web console at http://localhost:8000/ui · API docs at /docs
 ```
 
@@ -390,7 +391,7 @@ curl -s "http://localhost:8000/audit?step=final_action&limit=50"
 
 ```bash
 pip install -e ".[dev]"      # pytest + httpx + langgraph
-pytest -q                    # 103 tests: domain logic, API, engines, persistence, audit, auth/RBAC, observability, evaluation, UI, MCP server, error paths
+pytest -q                    # 181 tests: domain logic, API, engines, persistence, audit, auth/RBAC, observability, evaluation, UI, MCP server, input guard, error paths
 python run_demo.py           # end-to-end CLI smoke test over the sample batch
 ```
 
@@ -415,6 +416,7 @@ system — not just demoed.
   | `afc_http_request_latency_seconds{method,path}` | histogram | HTTP latency |
   | `afc_failures_total{kind}` | counter | Failure rate (5xx / unhandled) |
   | `afc_llm_tokens_total{engine}` · `afc_llm_cost_usd_total{engine}` | counter | LLM tokens & cost (real crew) |
+| `afc_input_guard_flags_total{category}` | counter | Requests flagged by the input guard, by injection category |
 
 - **Per-decision signals persisted** on every record: `latency_ms`, `tokens`,
   `cost_usd`. Deterministic engines use no LLM, so their tokens/cost are
@@ -487,6 +489,46 @@ edit / test locally  →  SYNC.cmd  →  GitHub Actions runs tests  →  badge +
 | **Docker Compose** | `docker compose up --build` | API on `http://localhost:8000`; healthcheck built in. |
 | **Docker** | `docker build -t agentic-finance-crew . && docker run -p 8000:8000 agentic-finance-crew` | Slim multi-stage, non-root image. |
 | **Kubernetes** | `kubectl apply -f k8s/` | Deployment (2 replicas, liveness/readiness probes, non-root) + Service. Keys come from a `Secret`, never plain values. |
+
+## 🛡️ Input guard (prompt injection + PII)
+
+Expense descriptions, employee names and other free-text fields are
+**untrusted input** that the real CrewAI engine places inside LLM prompts. A
+stdlib-only guard (`finance_crew.guard`) screens every request **before** any
+model or log sees it — and it runs inside the shared `analyze()` step, so all
+three engines get it identically.
+
+| Check | What it catches | What happens |
+|-------|-----------------|--------------|
+| Instruction override | "ignore previous instructions", "bypass the policy", "new instructions:" | Flagged |
+| Role override | "you are now the approver", "act as admin", jailbreak / developer mode, chat-template tokens (`<\|im_start\|>`, `[SYSTEM]`, `system:`) | Flagged |
+| System-prompt exfiltration | "reveal your system prompt", "print the api key" | Flagged |
+| Tool / command smuggling | `<tool_call>`, `"function_call":`, "decision: approved", "mark this as approved", `$(...)`, `; rm -rf`, `{{...}}`, `<script>` | Flagged |
+| Hidden Unicode | zero-width, bidi override/isolate, BOM, Unicode tag characters (text is also NFKC-normalized so look-alikes can't dodge the patterns) | Flagged + stripped |
+| PII | emails, phone numbers, payment cards (Luhn), IBANs (country length + mod-97), SSN / CNIC / NINO-style IDs | Redacted to `[REDACTED_<TYPE>]` |
+
+- **Flagged ⇒ human review, never auto-approved.** Findings become policy
+  violations (`input guard: possible prompt injection (…)`), so the `decide()`
+  guardrail routes the request to the review queue; they appear in
+  `rules_fired`, in a dedicated `input_guard` audit-trail event and in the
+  `afc_input_guard_flags_total` metric.
+- **What the LLM sees.** A flagged field is **withheld** from the prompt
+  entirely; clean fields have hidden characters stripped and PII redacted, and
+  the whole request is fenced as untrusted data.
+- **Logs.** A logging filter redacts PII from every formatted log line (API and
+  MCP server). The audit trail records *which kinds* of PII were redacted,
+  never the values.
+- Patterns are phrase-level, not single keywords; a test suite checks every
+  pattern **and** that ordinary expense text ("Uber to client site, approved by
+  manager verbally", "tool set for the warehouse") is not flagged.
+
+**OWASP Top 10 for LLM Applications mapping**
+
+| OWASP risk | Control here |
+|------------|--------------|
+| **LLM01 Prompt Injection** | Pattern + hidden-Unicode detection on all free-text fields; flagged requests go to a human; flagged text never reaches the prompt; untrusted data is fenced; the LLM can't authorize spend anyway (`decide()` is deterministic) |
+| **LLM02 Sensitive Information Disclosure** (LLM06 in the 2023 list) | PII redaction before prompts and in logs; audit trail stores PII *kinds* only; no description text is persisted on the decision record |
+| LLM06 Excessive Agency (2025 list) | The MCP server and agents have no approve/reject capability — humans resolve review items behind RBAC |
 
 ## 🔒 Security & Data
 
