@@ -14,11 +14,15 @@ FROM python:3.11-slim AS runtime
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONPATH=/app/src
+    PYTHONPATH=/app/src \
+    DATABASE_URL=sqlite:////app/data/finance_crew.db
 
-# Run as a non-root user (security best practice)
-RUN useradd --create-home --uid 1000 appuser
+# Run as a non-root user (security best practice). The SQLite default needs a
+# folder the non-root user can write to; /app itself stays root-owned/read-only.
+RUN useradd --create-home --uid 1000 appuser \
+    && mkdir -p /app/data && chown appuser:appuser /app/data
 WORKDIR /app
+VOLUME ["/app/data"]
 
 COPY --from=builder /opt/venv /opt/venv
 COPY src/ ./src/

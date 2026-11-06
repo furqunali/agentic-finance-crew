@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Docker image now starts healthy.** The container runs as the non-root
+  `appuser`, but the default SQLite database (`./finance_crew.db`) was created
+  inside the root-owned `/app`, so startup failed with `unable to open database
+  file` and the CI `/health` check never passed. The image now sets
+  `DATABASE_URL=sqlite:////app/data/finance_crew.db`, creates `/app/data` owned by
+  `appuser` and declares it a volume (data survives container restarts). Set
+  `DATABASE_URL` to Postgres for production as before.
+
 ### Added
 - **Robust error handling.**
   - Backend: a last-resort `Exception` handler turns any *unhandled* error into
