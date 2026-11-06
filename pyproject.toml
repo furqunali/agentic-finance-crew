@@ -21,6 +21,10 @@ dependencies = [
     "prometheus-client>=0.20",
 ]
 
+[project.scripts]
+# MCP server over stdio — exposes the approval workflow to AI assistants.
+afc-mcp = "finance_crew.mcp_server:main"
+
 [project.optional-dependencies]
 # Optional engines — kept out of the base install so the demo and CI stay light
 # and run with zero API keys.

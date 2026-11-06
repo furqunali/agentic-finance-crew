@@ -6,6 +6,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **MCP server** (`finance_crew.mcp_server`, console script `afc-mcp`): exposes
+  the approval workflow to AI assistants over the Model Context Protocol —
+  dependency-free JSON-RPC 2.0 on stdio (`initialize` with version negotiation,
+  `tools/list`, `tools/call`, `ping`; standard `-32700/-32600/-32601/-32602/-32603`
+  error codes; tool failures returned as `isError` results).
+  - Tools: `submit_expense_request` (same orchestrator, `decide()` guardrail,
+    persistence and audit trail as `POST /approve`), `get_decision`,
+    `list_pending_approvals`, `get_policy`. Arguments are validated against the
+    published JSON Schemas before any work runs.
+  - `MCP_ACTOR` env sets the `requested_by` identity recorded in the audit trail.
+  - Claude Desktop / MCP client config example in the README; 32 new tests
+    (handshake, schemas, each tool, bad input, unknown tool/method, a real
+    stdio subprocess round-trip).
+
+### Security
+- The MCP surface has **no approve/reject tool** by design: an assistant can
+  submit and read, but human sign-off of review items stays behind RBAC.
+
 ### Fixed
 - **Docker image now starts healthy.** The container runs as the non-root
   `appuser`, but the default SQLite database (`./finance_crew.db`) was created
