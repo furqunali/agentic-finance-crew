@@ -41,6 +41,9 @@ LLM_TOKENS = Counter(
 LLM_COST = Counter(
     "afc_llm_cost_usd_total", "LLM cost in USD", ["engine"]
 )
+RATE_LIMITED = Counter(
+    "afc_rate_limited_total", "Requests refused by the per-client rate limiter (429)", ["method", "path"]
+)
 INPUT_GUARD_FLAGS = Counter(
     "afc_input_guard_flags_total", "Requests flagged by the input guard", ["category"]
 )

@@ -17,7 +17,7 @@
   <img src="https://img.shields.io/badge/Observability-Prometheus-E6522C?style=flat-square&logo=prometheus&logoColor=white" alt="Prometheus">
   <img src="https://img.shields.io/badge/benchmark-1000%20cases%20·%20100%25%20·%200%20false%20approvals-0d9488?style=flat-square" alt="benchmark">
   <img src="https://img.shields.io/badge/UI-web%20console-1c3d5a?style=flat-square" alt="web console">
-  <img src="https://img.shields.io/badge/tests-181%20passing-2ea44f?style=flat-square" alt="tests">
+  <img src="https://img.shields.io/badge/tests-196%20passing-2ea44f?style=flat-square" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT">
 </p>
 
@@ -88,6 +88,7 @@ All three call the **same shared tools** for the hard rules, and all funnel thro
 - **Observability** — Prometheus metrics at `/metrics` (decisions, latency, HTTP, failures, LLM tokens/cost), structured JSON logging, and per-decision latency / token / cost stored on every record.
 - **Evaluated, not just built** — a reproducible benchmark of **1,000 synthetic cases** scored against an independent policy oracle: **100% accuracy, 0 false approvals**, violation & duplicate F1 = 1.0. A CI safety gate fails the build on any false approval.
 - **Web console (UI)** at `/ui` — a professional single-page app: login, role-aware nav, submit, **bulk CSV upload**, review queue (approve/reject), decisions with filters + **CSV export**, audit-trail timeline, users admin, an overview with charts, dark mode, and a 🔊 **Listen** (read-aloud) option.
+- **API rate limiting** — per-client token buckets (user / API key / IP) on every mutating endpoint, including login; `429` + `Retry-After`, counted in Prometheus. Stdlib only.
 - **Prompt-injection + PII guard** — every free-text field is screened before any LLM sees it: suspected injections are routed to a human (never auto-approved) with the reason in the audit trail; emails, phones, cards, IBANs and national IDs are redacted from prompts and logs (OWASP LLM01 / LLM02).
 - **MCP server** — the approval workflow as Model Context Protocol tools (JSON-RPC 2.0 over stdio, no new dependency) so AI assistants can submit expenses and query decisions — but never approve them.
 - **Runs with zero secrets** via the local engine — great for demos, CI and offline dev.
@@ -131,7 +132,7 @@ cd agentic-finance-crew
 pip install -e ".[dev]"
 
 python run_demo.py          # run the crew over the sample batch (no key needed)
-pytest -q                   # 181 tests, all green
+pytest -q                   # 196 tests, all green
 uvicorn app:app --reload    # web console at http://localhost:8000/ui · API docs at /docs
 ```
 
@@ -184,6 +185,10 @@ engine or enable the real crew.
 | `LOG_LEVEL`      | `INFO`         | `DEBUG` · `INFO` · `WARNING` · …          | Root log level. |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin` / `admin` | any                    | Bootstrap admin created on first run against an empty user table. **Change these.** |
 | `AUTH_DISABLED`  | _(off)_        | `1` / `true`                              | Local/demo only: skip login (every request = admin). **Never in production.** `START.cmd` sets it for single-user local use. |
+| `RATE_LIMIT_ENABLED` | `true`     | `true` / `false`                          | Per-client rate limiting of mutating endpoints (`POST`/`PUT`/`PATCH`/`DELETE`). |
+| `RATE_LIMIT_PER_MINUTE` | `60`    | number                                    | Sustained calls per minute per client (token refill rate). |
+| `RATE_LIMIT_BURST` | `20`         | integer                                   | Bucket capacity: calls a client may make back-to-back. |
+| `RATE_LIMIT_TRUST_PROXY` | _(off)_ | `1` / `true`                             | Use the first `X-Forwarded-For` hop as the client IP. Only behind a proxy you control. |
 | `MCP_ACTOR`      | `mcp-client`   | any                                       | Identity recorded as `requested_by` for submissions made through the MCP server. |
 | `ENGINE`         | `auto`         | `auto` · `local` · `langgraph` · `crewai` | Which orchestrator runs. `auto` picks the real crew if opted-in **and** keyed, otherwise `local`. |
 | `USE_CREWAI`     | `false`        | `true` / `false`                          | Opt-in flag for the real CrewAI crew (needs a key too). |
@@ -391,7 +396,7 @@ curl -s "http://localhost:8000/audit?step=final_action&limit=50"
 
 ```bash
 pip install -e ".[dev]"      # pytest + httpx + langgraph
-pytest -q                    # 181 tests: domain logic, API, engines, persistence, audit, auth/RBAC, observability, evaluation, UI, MCP server, input guard, error paths
+pytest -q                    # 196 tests: domain logic, API, engines, persistence, audit, auth/RBAC, observability, evaluation, UI, MCP server, input guard, rate limiting, error paths
 python run_demo.py           # end-to-end CLI smoke test over the sample batch
 ```
 
@@ -416,6 +421,7 @@ system — not just demoed.
   | `afc_http_request_latency_seconds{method,path}` | histogram | HTTP latency |
   | `afc_failures_total{kind}` | counter | Failure rate (5xx / unhandled) |
   | `afc_llm_tokens_total{engine}` · `afc_llm_cost_usd_total{engine}` | counter | LLM tokens & cost (real crew) |
+| `afc_rate_limited_total{method,path}` | counter | Requests refused with `429` by the rate limiter |
 | `afc_input_guard_flags_total{category}` | counter | Requests flagged by the input guard, by injection category |
 
 - **Per-decision signals persisted** on every record: `latency_ms`, `tokens`,
@@ -489,6 +495,29 @@ edit / test locally  →  SYNC.cmd  →  GitHub Actions runs tests  →  badge +
 | **Docker Compose** | `docker compose up --build` | API on `http://localhost:8000`; healthcheck built in. |
 | **Docker** | `docker build -t agentic-finance-crew . && docker run -p 8000:8000 agentic-finance-crew` | Slim multi-stage, non-root image. |
 | **Kubernetes** | `kubectl apply -f k8s/` | Deployment (2 replicas, liveness/readiness probes, non-root) + Service. Keys come from a `Secret`, never plain values. |
+
+## 🚦 Rate limiting
+
+Every **mutating** endpoint (`POST`/`PUT`/`PATCH`/`DELETE` — submit, batch,
+approve/reject, user admin and **login**) passes through a per-client
+**token-bucket** limiter (`finance_crew.ratelimit`, stdlib only). Each client
+may burst `RATE_LIMIT_BURST` calls, refilled at `RATE_LIMIT_PER_MINUTE`.
+Reads, `/health` and `/metrics` are never limited.
+
+- **Who is a client?** The authenticated user (JWT `sub`), else an
+  `X-API-Key` header (hashed, never stored raw), else the client IP.
+  `X-Forwarded-For` is only trusted with `RATE_LIMIT_TRUST_PROXY=true`.
+- **When exceeded:** `429 Too Many Requests` with the usual error body and a
+  `Retry-After` header (seconds); allowed responses carry `RateLimit-Limit` /
+  `RateLimit-Remaining`. Refusals are counted in `afc_rate_limited_total` and
+  in `afc_http_requests_total{status="429"}`.
+- Login is limited per IP, which throttles password-guessing.
+- Buckets live in-process (bounded LRU, 10k clients), so each replica enforces
+  its own budget; put a shared limiter at the ingress if you need a global one.
+
+```bash
+curl -si -X POST http://localhost:8000/approve -H "Authorization: Bearer $TOKEN"   -H "Content-Type: application/json" -d '{"id":"EXP-9","employee":"E","category":"software","amount":10}'   | grep -iE "^HTTP|ratelimit|retry-after"
+```
 
 ## 🛡️ Input guard (prompt injection + PII)
 
