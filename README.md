@@ -17,7 +17,7 @@
   <img src="https://img.shields.io/badge/Observability-Prometheus-E6522C?style=flat-square&logo=prometheus&logoColor=white" alt="Prometheus">
   <img src="https://img.shields.io/badge/benchmark-1000%20cases%20·%20100%25%20·%200%20false%20approvals-0d9488?style=flat-square" alt="benchmark">
   <img src="https://img.shields.io/badge/UI-web%20console-1c3d5a?style=flat-square" alt="web console">
-  <img src="https://img.shields.io/badge/tests-70%20passing-2ea44f?style=flat-square" alt="tests">
+  <img src="https://img.shields.io/badge/tests-103%20passing-2ea44f?style=flat-square" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT">
 </p>
 
@@ -88,6 +88,7 @@ All three call the **same shared tools** for the hard rules, and all funnel thro
 - **Observability** — Prometheus metrics at `/metrics` (decisions, latency, HTTP, failures, LLM tokens/cost), structured JSON logging, and per-decision latency / token / cost stored on every record.
 - **Evaluated, not just built** — a reproducible benchmark of **1,000 synthetic cases** scored against an independent policy oracle: **100% accuracy, 0 false approvals**, violation & duplicate F1 = 1.0. A CI safety gate fails the build on any false approval.
 - **Web console (UI)** at `/ui` — a professional single-page app: login, role-aware nav, submit, **bulk CSV upload**, review queue (approve/reject), decisions with filters + **CSV export**, audit-trail timeline, users admin, an overview with charts, dark mode, and a 🔊 **Listen** (read-aloud) option.
+- **MCP server** — the approval workflow as Model Context Protocol tools (JSON-RPC 2.0 over stdio, no new dependency) so AI assistants can submit expenses and query decisions — but never approve them.
 - **Runs with zero secrets** via the local engine — great for demos, CI and offline dev.
 - **FastAPI service** (`/auth/*`, `/approve`, `/approve/batch`, `/decisions`, `/review-queue`, `/audit`, `/metrics`, `/health`) with OpenAPI docs at `/docs` and a web console at `/ui`.
 - **Fully containerized** (multi-stage, non-root, healthcheck) and **Kubernetes-ready**.
@@ -129,7 +130,7 @@ cd agentic-finance-crew
 pip install -e ".[dev]"
 
 python run_demo.py          # run the crew over the sample batch (no key needed)
-pytest -q                   # 70 tests, all green
+pytest -q                   # 103 tests, all green
 uvicorn app:app --reload    # web console at http://localhost:8000/ui · API docs at /docs
 ```
 
@@ -182,6 +183,7 @@ engine or enable the real crew.
 | `LOG_LEVEL`      | `INFO`         | `DEBUG` · `INFO` · `WARNING` · …          | Root log level. |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin` / `admin` | any                    | Bootstrap admin created on first run against an empty user table. **Change these.** |
 | `AUTH_DISABLED`  | _(off)_        | `1` / `true`                              | Local/demo only: skip login (every request = admin). **Never in production.** `START.cmd` sets it for single-user local use. |
+| `MCP_ACTOR`      | `mcp-client`   | any                                       | Identity recorded as `requested_by` for submissions made through the MCP server. |
 | `ENGINE`         | `auto`         | `auto` · `local` · `langgraph` · `crewai` | Which orchestrator runs. `auto` picks the real crew if opted-in **and** keyed, otherwise `local`. |
 | `USE_CREWAI`     | `false`        | `true` / `false`                          | Opt-in flag for the real CrewAI crew (needs a key too). |
 | `LLM_PROVIDER`   | `openai`       | `openai` · `gemini`                       | LLM vendor used by the CrewAI engine. |
@@ -222,6 +224,49 @@ Every `/approve` response now carries a `record_id` pointing at the stored row.
 Interactive OpenAPI docs are always at [`/docs`](http://localhost:8000/docs).
 Malformed payloads return a clean `422`; an empty or oversized batch is
 rejected before any work runs.
+
+## 🧩 MCP server (use it from AI assistants)
+
+The approval workflow is also exposed over the **Model Context Protocol**, so an
+MCP client (Claude Desktop, an IDE agent, any MCP-capable assistant) can submit
+expenses and query decisions as tools. It is a dependency-free **JSON-RPC 2.0
+over stdio** server (`initialize`, `tools/list`, `tools/call`, `ping`, standard
+error codes) and runs key-free on the local engine.
+
+| Tool | What it does |
+|------|--------------|
+| `submit_expense_request` | Runs the crew + `decide()` guardrail, persists the decision and audit trail, returns decision, risk score and reasons (rules fired) |
+| `get_decision` | Latest stored decision for a business `request_id` (status, rules, rationale, resolver) |
+| `list_pending_approvals` | The human review queue, oldest first |
+| `get_policy` | The active spend policy (limits, receipt threshold, per-category limits) |
+
+There is deliberately **no approve/reject tool**: an assistant can submit and
+read, but signing off a review item stays a human action behind RBAC.
+
+```bash
+python -m finance_crew.mcp_server     # or the installed console script: afc-mcp
+```
+
+Claude Desktop (`claude_desktop_config.json`) or any MCP client config:
+
+```json
+{
+  "mcpServers": {
+    "finance-crew": {
+      "command": "python",
+      "args": ["-m", "finance_crew.mcp_server"],
+      "env": {
+        "DATABASE_URL": "sqlite:////absolute/path/to/finance_crew.db",
+        "MCP_ACTOR": "claude-desktop"
+      }
+    }
+  }
+}
+```
+
+`MCP_ACTOR` is recorded as `requested_by` in the audit trail (default
+`mcp-client`). Point `DATABASE_URL` at the same database as the API to see
+MCP submissions in the web console and review queue.
 
 ## 🖥️ Web console (UI)
 
@@ -345,7 +390,7 @@ curl -s "http://localhost:8000/audit?step=final_action&limit=50"
 
 ```bash
 pip install -e ".[dev]"      # pytest + httpx + langgraph
-pytest -q                    # 70 tests: domain logic, API, engines, persistence, audit, auth/RBAC, observability, evaluation, UI, error paths
+pytest -q                    # 103 tests: domain logic, API, engines, persistence, audit, auth/RBAC, observability, evaluation, UI, MCP server, error paths
 python run_demo.py           # end-to-end CLI smoke test over the sample batch
 ```
 
