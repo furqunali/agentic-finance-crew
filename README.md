@@ -91,7 +91,7 @@ All numbers below are reproducible on a laptop with no API key.
 | Evidence | Result | Reproduce |
 |---|---|---|
 | **Red-team suite** — 61 hand-written attacks in 10 families × 3 engines (`local`, `langgraph`, `crewai+hostile-llm`) | **0 / 129 unauthorized approvals**, **54 / 54 injections flagged**, 183 / 183 runs pass, engines agree on every attack | `python run_redteam.py --check` → [`benchmark/REDTEAM.md`](benchmark/REDTEAM.md) |
-| **Evaluation benchmark** — 1,000 synthetic cases, ground truth from an independent policy oracle | **100% accuracy, 0 false approvals**, violation & duplicate F1 = 1.0 | `python run_eval.py --check` → [`benchmark/RESULTS.md`](benchmark/RESULTS.md) |
+| **Evaluation benchmark** — 1,000 **synthetic** cases on the deterministic engine, ground truth from an independent policy oracle (policy conformance, not real-world accuracy) | **100% accuracy, 0 false approvals**, violation & duplicate F1 = 1.0 | `python run_eval.py --check` → [`benchmark/RESULTS.md`](benchmark/RESULTS.md) |
 | **Test suite** | **243 tests** — guardrail, engines, API, RBAC, separation of duties, audit, input guard, MCP, rate limiting, decision records, hostile-LLM | `pytest -q` |
 | **CI** | Python 3.10–3.12, Postgres integration, Docker build, **both safety gates** | [Actions](https://github.com/furqunali/agentic-finance-crew/actions/workflows/ci.yml) |
 | **Live demo** | Key-free local engine | [agentic-finance-crew-deploy.vercel.app](https://agentic-finance-crew-deploy.vercel.app) |
@@ -116,18 +116,20 @@ Plus one control the red team does not cover by itself: **separation of duties**
 
 ## ⚠️ Limitations
 
-Honest boundaries of what has and hasn't been shown:
+Agentic Finance Crew is a prototype for governed expense-decision workflows. Its safety controls reduce risk; they do not eliminate every possible failure. Honest boundaries of what has and hasn't been shown:
 
 - **Synthetic data, fictional policy.** No real financial data, no production deployment. The benchmark measures conformance to the written policy, not real-world fraud detection.
 - **The real LLM is not benchmarked in CI.** CI has no API key; the red team drives the real CrewAI code path with a *hostile stand-in model*. That proves the guardrail holds against the worst-case output — it does not measure the quality or honesty of a real model's narrative.
 - **Misleading narratives reach humans.** A manipulated model can't approve anything, but its rationale is shown to reviewers and could nudge them (automation bias). Mitigation today: the verdict and rules fired are shown separately from the narrative.
 - **The input guard is heuristic.** Pattern- and Unicode-based; novel paraphrases, other languages or encodings (e.g. base64) can slip past it. Impact is bounded — an unflagged injection still can't approve spend — but an unflagged injection does reach the model's prompt.
 - **Single human approver**, even for very large amounts; no dual control or approval tiers yet. Reviewers can still rubber-stamp.
+- **Depends on reviewer availability.** Routed requests wait in the queue until an authorized reviewer acts; there is no escalation timer or backup approver. The system supports human accountability — it does not replace it.
 - **History-bound checks.** Duplicate and split-purchase detection only see the history supplied to the call (a batch); a single `/approve` request is not compared with previously stored decisions. Split detection is same-day and same-category, and only for dated requests.
 - **Static thresholds**; currency-agnostic; the confidence value is per-branch, not calibrated.
 - **Deployment hygiene is on the operator:** the bootstrap `admin/admin` account must be changed; `AUTH_DISABLED` (local single-user mode) turns off login **and** separation of duties; JWT is HS256 with a shared secret; no MFA; rate limits are per process.
 - **Audit trail is append-only by application, not cryptographically tamper-evident** — a database administrator could still alter rows.
 - **Auto-approved decisions cannot be reopened** through the API; a clawback/reversal workflow would be needed before connecting this to a payment system.
+- **Not a certified financial-control system.** Production use would need organization-specific policy configuration, a security review, integration testing, monitoring and operational sign-off.
 
 Planned next steps are in the [Roadmap](#️-roadmap).
 
@@ -474,12 +476,14 @@ human-in-the-loop workflow:
 # The review queue — decisions awaiting a human (oldest first)
 curl -s http://localhost:8000/review-queue
 
-# A Finance Manager approves item #7
+# A Finance Manager approves item #7. The approver is whoever owns the token —
+# the body carries only a note; an "actor" field in the body would be ignored.
 curl -s -X POST http://localhost:8000/decisions/7/approve \
+  -H "Authorization: Bearer $MANAGER_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"actor":"j.lee (Finance Manager)","note":"Receipt verified with vendor."}'
-#   -> 200; status "human_approved", final_action "approved"
-#   Approving an auto-decided item returns 409 (it isn't awaiting review).
+  -d '{"note":"Receipt verified with vendor."}'
+#   -> 200; status "human_approved", final_action "approved", resolved_by = the token's user
+#   409 if the item isn't awaiting review · 403 if the caller submitted it (separation of duties)
 
 # The full audit trail for one decision …
 curl -s http://localhost:8000/decisions/7/audit
@@ -542,6 +546,12 @@ a governed decision system."* A reproducible benchmark generates synthetic
 expense cases **with ground truth from an independent policy oracle** (not the
 system's own `decide()`, so agreement is a real cross-check), runs them through
 the pipeline, and scores the outcome.
+
+> **Scope of this result:** 1,000 **synthetic** cases on the **deterministic**
+> engine. It shows the system enforces the policy as written, consistently —
+> it is **not** a measure of accuracy on real-world financial data and not a
+> production validation. Adversarial behaviour is measured separately by the
+> [red-team suite](benchmark/REDTEAM.md).
 
 Latest published run — **1,000 cases** (`benchmark/RESULTS.md`, [`results.json`](benchmark/results.json)):
 
