@@ -136,7 +136,8 @@ the MCP server but cannot approve or reject.
 
 Reproducible benchmark (`python run_eval.py --n 1000`, seed 42, engine
 `local`): 1,000 synthetic cases, labelled by an **independent policy oracle**
-(not the system's own `decide()`).
+(not the system's own `decide()`). It demonstrates **policy compliance on
+synthetic cases** — not proven real-world financial safety.
 
 | Metric | Result |
 |--------|--------|
