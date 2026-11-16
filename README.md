@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/PostgreSQL-persisted-336791?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL">
   <img src="https://img.shields.io/badge/Auth-JWT%20%2B%20RBAC-000000?style=flat-square&logo=jsonwebtokens&logoColor=white" alt="JWT + RBAC">
   <img src="https://img.shields.io/badge/Observability-Prometheus-E6522C?style=flat-square&logo=prometheus&logoColor=white" alt="Prometheus">
-  <img src="https://img.shields.io/badge/benchmark-1000%20cases%20·%20100%25%20·%200%20false%20approvals-0d9488?style=flat-square" alt="benchmark">
+  <img src="https://img.shields.io/badge/synthetic%20benchmark-1000%20cases%20·%20100%25%20policy%20conformance%20·%200%20false%20approvals-0d9488?style=flat-square" alt="benchmark">
   <img src="https://img.shields.io/badge/red%20team-61%20attacks%20×%203%20engines%20·%200%20unauthorized%20approvals-b91c1c?style=flat-square" alt="red team">
   <img src="https://img.shields.io/badge/UI-web%20console-1c3d5a?style=flat-square" alt="web console">
   <img src="https://img.shields.io/badge/tests-265%20passing-2ea44f?style=flat-square" alt="tests">
@@ -185,7 +185,7 @@ All three call the **same shared tools** for the hard rules, and all funnel thro
 - **Tamper-evident, hash-chained audit trail** — each decision logs the full lifecycle (who requested it → what the AI recommended → which rules fired → who approved it → timestamps, reason, model/version). The machine verdict is never overwritten by a human resolution.
 - **Auth & RBAC** — JWT bearer tokens with four roles (**Employee / Finance Manager / Auditor / Admin**); the approver's identity comes from the token, not the request body.
 - **Observability** — Prometheus metrics at `/metrics` (decisions, latency, HTTP, failures, LLM tokens/cost), structured JSON logging, and per-decision latency / token / cost stored on every record.
-- **Evaluated, not just built** — a reproducible benchmark of **1,000 synthetic cases** scored against an independent policy oracle: **100% accuracy, 0 false approvals**, violation & duplicate F1 = 1.0. A CI safety gate fails the build on any false approval.
+- **Evaluated, not just built** — a reproducible benchmark of **1,000 synthetic cases** scored against an independent policy oracle: **100% accuracy, 0 false approvals**, violation & duplicate F1 = 1.0 — evidence of policy compliance on synthetic cases, not proof of real-world financial safety. A CI safety gate fails the build on any false approval.
 - **Web console (UI)** at `/ui` — a professional single-page app: login, role-aware nav, submit, **bulk CSV upload**, review queue (approve/reject), decisions with filters + **CSV export**, audit-trail timeline, users admin, an overview with charts, dark mode, and a 🔊 **Listen** (read-aloud) option.
 - **AI transparency pack** — a [`MODEL_CARD.md`](MODEL_CARD.md) (intended / out-of-scope use, limitations, human oversight, data handling, evaluation, EU AI Act risk reasoning) and a per-decision **decision record** at `/decisions/{id}/explanation` (JSON or Markdown).
 - **API rate limiting** — per-client token buckets (user / API key / IP) on every mutating endpoint, including login; `429` + `Retry-After`, counted in Prometheus. Stdlib only.
@@ -202,7 +202,7 @@ All three call the **same shared tools** for the hard rules, and all funnel thro
 
 ## 🧠 AI / Engineering Decisions
 
-- **The model advises; policy decides.** Keeping authorization in a deterministic `decide()` function makes the system auditable and safe to run unattended — a non-negotiable in finance.
+- **The model advises; policy decides.** Keeping authorization in a deterministic `decide()` function keeps the model out of the approval path and makes every verdict auditable and reproducible — a non-negotiable in finance.
 - **Strategy pattern for the engine.** The LLM is an *optional, swappable* dependency. This makes the whole system testable and runnable with no key, and avoids vendor lock-in (OpenAI or Gemini via config).
 - **Rules in code, not prompts.** Spend limits and receipt policy are unit-tested pure functions, so behavior is reproducible and doesn't drift with model updates.
 - **Human-in-the-loop by default** for risk — the crew optimizes throughput on the safe majority without ever silently approving the risky minority.
