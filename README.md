@@ -30,7 +30,7 @@
 |---|---|
 | **What it is** | A multi-agent (CrewAI / LangGraph) system that triages company expense requests: auto-approve the small and compliant, send everything else to a named human. |
 | **Safety thesis** | *The model advises; deterministic code decides; a human signs anything that matters.* No LLM output, tool call or API payload can approve spend that policy forbids — and nobody can sign off their own expense. |
-| **Strongest evidence** | Adversarial **red-team suite: 61 attacks × 3 engines (including the real CrewAI path driven by a hostile model that always says "approve") → 0 unauthorized approvals / 129**, down from **48** before this hardening. 1,000-case benchmark: **0 false approvals**. **243 tests**. Both safety numbers are **CI gates** — a regression cannot merge. |
+| **Strongest evidence** | Adversarial **red-team suite: 61 attacks × 3 engines (including the real CrewAI path driven by a hostile model that always says "approve") → 0 unauthorized approvals / 129**, down from **48** before this hardening. 1,000-case benchmark: **0 false approvals**. **265 tests**. Both safety numbers are **CI gates** — a regression cannot merge. |
 | **Read next** | [🛡️ Safety approach](#️-safety-approach) · [🔬 Supporting evidence](#-supporting-evidence) · [⚠️ Limitations](#️-limitations) · [MODEL_CARD.md](MODEL_CARD.md) · [benchmark/REDTEAM.md](benchmark/REDTEAM.md) |
 
 Everything below runs **offline with no API key** (`pip install -e ".[dev]" && pytest -q && python run_redteam.py`).
@@ -90,7 +90,7 @@ All numbers below are reproducible on a laptop with no API key.
 
 | Evidence | Result | Reproduce |
 |---|---|---|
-| **Red-team suite** — 61 hand-written attacks in 10 families × 3 engines (`local`, `langgraph`, `crewai+hostile-llm`) | **0 / 129 unauthorized approvals**, **54 / 54 injections flagged**, 183 / 183 runs pass, engines agree on every attack | `python run_redteam.py --check` → [`benchmark/REDTEAM.md`](benchmark/REDTEAM.md) |
+| **Red-team suite** — 61 hand-written attacks in 10 families × 3 engines (`local`, `langgraph`, `crewai+hostile-llm`) | **0 / 129 unauthorized approvals**, **54 / 54 injections flagged**, 183 / 183 runs pass, engines agree on every attack. The 129 denominator excludes the 54 injection-only runs (policy-compliant requests carrying a prompt injection), which are measured separately by the 54 / 54 injection-detection metric; 183 = 129 + 54. | `python run_redteam.py --check` → [`benchmark/REDTEAM.md`](benchmark/REDTEAM.md) |
 | **Evaluation benchmark** — 1,000 **synthetic** cases on the deterministic engine, ground truth from an independent policy oracle (policy conformance, not real-world accuracy) | **100% accuracy, 0 false approvals**, violation & duplicate F1 = 1.0 | `python run_eval.py --check` → [`benchmark/RESULTS.md`](benchmark/RESULTS.md) |
 | **Tamper evidence** | Editing a decision, editing / deleting / truncating audit events, or rewriting who approved — **all detected** | `pytest tests/test_controls.py` · `GET /audit/verify` |
 | **Test suite** | **265 tests** — guardrail, engines, API, RBAC, separation of duties, dual control, hash-chained audit, cross-call history checks, input guard, MCP, rate limiting, decision records, hostile-LLM | `pytest -q` |
@@ -99,6 +99,8 @@ All numbers below are reproducible on a laptop with no API key.
 | **Transparency** | Model card + per-decision explainable record (`/decisions/{id}/explanation`) | [`MODEL_CARD.md`](MODEL_CARD.md) |
 
 ### The red team found real holes — and they are fixed
+
+_Denominators:_ The 129 denominator excludes the 54 injection-only runs (policy-compliant requests carrying a prompt injection), which are measured separately by the 54 / 54 injection-detection metric; 183 = 129 + 54.
 
 The same suite was run against the previous release (`855f5d9`, kept as [`benchmark/redteam-baseline-855f5d9.json`](benchmark/redteam-baseline-855f5d9.json)) before hardening:
 
@@ -180,7 +182,7 @@ All three call the **same shared tools** for the hard rules, and all funnel thro
 - **Separation of duties** — nobody can approve or reject their own submission (`403`), on top of role checks.
 - **Adversarially tested** — a [red-team suite](benchmark/REDTEAM.md) of 61 attacks runs on every engine (including CrewAI driven by a hostile model) with **0 unauthorized approvals**, enforced as a CI gate.
 - **Durable system-of-record** — every decision is persisted via SQLAlchemy with Alembic migrations; runs on zero-config **SQLite** in dev and **PostgreSQL** in production by flipping one env var.
-- **Immutable audit trail** — each decision logs the full lifecycle (who requested it → what the AI recommended → which rules fired → who approved it → timestamps, reason, model/version). The machine verdict is never overwritten by a human resolution.
+- **Tamper-evident, hash-chained audit trail** — each decision logs the full lifecycle (who requested it → what the AI recommended → which rules fired → who approved it → timestamps, reason, model/version). The machine verdict is never overwritten by a human resolution.
 - **Auth & RBAC** — JWT bearer tokens with four roles (**Employee / Finance Manager / Auditor / Admin**); the approver's identity comes from the token, not the request body.
 - **Observability** — Prometheus metrics at `/metrics` (decisions, latency, HTTP, failures, LLM tokens/cost), structured JSON logging, and per-decision latency / token / cost stored on every record.
 - **Evaluated, not just built** — a reproducible benchmark of **1,000 synthetic cases** scored against an independent policy oracle: **100% accuracy, 0 false approvals**, violation & duplicate F1 = 1.0. A CI safety gate fails the build on any false approval.
@@ -459,7 +461,7 @@ SQLite and Postgres (a dedicated CI job proves the Postgres path end-to-end).
 ## 🧾 Audit trail & human review
 
 Governed spend needs to answer *"who approved this, on what basis, and when?"*
-Every decision therefore carries an **append-only audit trail** and a
+Every decision therefore carries an **append-only, tamper-evident (hash-chained) audit trail** and a
 human-in-the-loop workflow:
 
 - **What's recorded per decision** — who requested it, what the AI
@@ -469,7 +471,7 @@ human-in-the-loop workflow:
 - **Lifecycle** mirrors the pipeline as ordered audit events:
   `request_received → ai_reasoning → policy_evaluation → decision`
   (→ `human_review → final_action` for review items).
-- **Immutability** — a human approve/reject is layered on via `status` /
+- **Machine verdict preserved** — a human approve/reject is layered on via `status` /
   `resolved_by` / `resolved_at`; the original machine verdict
   (`decision`, `ai_recommendation`) is **never overwritten**, so the record
   always shows *what the AI said* vs *what the human decided*.
@@ -565,7 +567,7 @@ Latest published run — **1,000 cases** (`benchmark/RESULTS.md`, [`results.json
 | Auto-approved / escalated / rejected | 43.1% / 52.1% / 4.8% |
 | Policy-violation detection (P / R / F1) | 1.000 / 1.000 / 1.000 |
 | Duplicate detection (P / R / F1) | 1.000 / 1.000 / 1.000 |
-| Latency (ms): mean / p95 | ~2.1 / ~4.1 |
+| Latency (ms): mean / p95 | ~4.0 / ~9.0 (machine-dependent) |
 | Tokens / cost | 0 / $0.00 (deterministic engine; the real crew reports actual usage) |
 
 ```bash
@@ -697,7 +699,7 @@ three engines get it identically.
 
 - ✅ **LangGraph** orchestrator as a third interchangeable engine (stateful graph) — *done*.
 - ✅ **Persist decisions to a database** (SQLAlchemy + Alembic; SQLite dev / Postgres prod) as a system-of-record — *done*.
-- ✅ **Immutable audit trail + human-review queue** (who approved, rules fired, model/version; approve/reject workflow) — *done*.
+- ✅ **Append-only audit trail + human-review queue** (who approved, rules fired, model/version; approve/reject workflow) — *done*.
 - ✅ **Authentication & RBAC** (JWT; Employee / Finance Manager / Auditor / Admin) gating every action — *done*.
 - ✅ **Observability** — Prometheus metrics, structured logs, per-decision latency / token / cost / failure-rate — *done*.
 - ✅ **Evaluation benchmark** — 1,000 synthetic cases; published + CI safety gate — *done*.

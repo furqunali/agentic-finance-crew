@@ -146,7 +146,7 @@ Reproducible benchmark (`python run_eval.py --n 1000`, seed 42, engine
 | Auto-approved / escalated / rejected | 43.1% / 52.1% / 4.8% |
 | Policy-violation detection (P / R / F1) | 1.000 / 1.000 / 1.000 |
 | Duplicate detection (P / R / F1) | 1.000 / 1.000 / 1.000 |
-| Latency (ms) mean / p95 | ~2.1 / ~3.9 (machine-dependent) |
+| Latency (ms) mean / p95 | ~4.0 / ~9.0 (machine-dependent) |
 | LLM tokens / cost | 0 / $0.00 (deterministic engine) |
 
 - **CI safety gate:** every push runs `run_eval.py --n 300 --check`, which
