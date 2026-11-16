@@ -18,7 +18,7 @@
   <img src="https://img.shields.io/badge/benchmark-1000%20cases%20·%20100%25%20·%200%20false%20approvals-0d9488?style=flat-square" alt="benchmark">
   <img src="https://img.shields.io/badge/red%20team-61%20attacks%20×%203%20engines%20·%200%20unauthorized%20approvals-b91c1c?style=flat-square" alt="red team">
   <img src="https://img.shields.io/badge/UI-web%20console-1c3d5a?style=flat-square" alt="web console">
-  <img src="https://img.shields.io/badge/tests-243%20passing-2ea44f?style=flat-square" alt="tests">
+  <img src="https://img.shields.io/badge/tests-265%20passing-2ea44f?style=flat-square" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT">
 </p>
 
@@ -64,7 +64,7 @@ The agents **explain and enrich** the decision; a deterministic rule engine **ma
   valid amount and identity · a *recognized* category · within that category's limit · ≤ **$200** (auto-approve limit) ·
   receipt present above $50 · not a duplicate · not part of a same-day split purchase · no prompt-injection finding · risk score < 60.
 - **Everything else is routed to a human** (review queue) or rejected outright (invalid input). Above **$2,000** a human *always* decides.
-- **A human approval is a deliberate, attributable act:** it needs a JWT with the Finance Manager or Admin role, the approver's identity comes from the token (never the request body), **you cannot approve or reject your own submission** (separation of duties), and it is written to an append-only audit trail next to — never over — the machine's verdict.
+- **A human approval is a deliberate, attributable act:** it needs a JWT with the Finance Manager or Admin role, the approver's identity comes from the token (never the request body), **you cannot approve or reject your own submission** (separation of duties), and **above $5,000 two different reviewers must approve** (dual control). Every step is written to a **hash-chained, tamper-evident** audit trail next to — never over — the machine's verdict.
 - **Agents have no write capability.** The LLM agents produce narrative only; the MCP server exposes *submit* and *read* tools but **no approve/reject tool**.
 
 ### Threat model → control → proof
@@ -74,10 +74,10 @@ The agents **explain and enrich** the decision; a deterministic rule engine **ma
 | 1 | The LLM hallucinates, or is manipulated into, "approve" | Verdict is computed by the deterministic `decide()` guardrail; the crew's text is only appended as a rationale | `decision.py`, `crew.py` | `tests/test_safety.py::test_hostile_llm_cannot_approve`; red-team engine `crewai+hostile-llm` |
 | 2 | Prompt injection in free-text fields (OWASP LLM01) | Input guard flags instruction/role override, exfiltration, tool/verdict smuggling, hidden Unicode → **human review**; flagged text never reaches the prompt | `guard.py`, `tools.analyze` | `tests/test_guard.py`; red team: **54/54 injections flagged** |
 | 3 | Excessive agency (OWASP LLM06) — an agent or assistant approves | No approve tool for agents or MCP clients; approval endpoints are human-only behind RBAC | `mcp_server.py`, `app.py` | `tests/test_mcp_server.py`, `tests/test_auth.py` |
-| 4 | Unauthorized or self-interested human approval | JWT + RBAC (4 roles); approver from token; **separation of duties** (403 on self-approval) | `auth.py`, `service.resolve_decision` | `tests/test_safety.py` (separation-of-duties tests), `tests/test_auth.py` |
+| 4 | Unauthorized, self-interested or single-person approval of large spend | JWT + RBAC (4 roles); approver from token; **separation of duties** (403 on self-approval); **dual control** — above $5,000 two *different* reviewers must approve, one reject ends it | `auth.py`, `service.resolve_decision` | `tests/test_safety.py`, `tests/test_controls.py` (dual control), `tests/test_auth.py` |
 | 5 | Policy evasion through malformed input — `"false"` receipt flag, `NaN`/boolean amounts, disguised or homoglyph categories | **Fail-closed parsing**: strict booleans, finite numbers only, NFKC + format-char stripping, unknown category → human | `models.py`, `tools.py` | red-team families *numeric*, *receipt-flag*, *category evasion* |
-| 6 | Structuring and duplicate resubmission | Same-day split-purchase detection; duplicate check on a normalized identity (case, spacing, Unicode) | `tools.py` | red-team families *split purchase*, *duplicate evasion* |
-| 7 | Tampering / deniability after the fact | Append-only audit trail; machine verdict immutable; per-decision decision record | `records.py`, `explain.py` | `tests/test_audit.py`, `tests/test_explain.py` |
+| 6 | Structuring and duplicate resubmission — in one batch **or across separate calls and days** | Same-day split-purchase detection; duplicate check on a normalized identity (case, spacing, Unicode); every new request is also checked against the employee's **stored decisions** (90-day look-back, configurable) | `tools.py`, `service.stored_history` | red-team families *split purchase*, *duplicate evasion*; `tests/test_controls.py` (cross-call) |
+| 7 | Tampering / deniability after the fact | **Tamper-evident ledger**: each decision's write-once fields are hashed; every audit event is SHA-256 **hash-chained** to the previous one and anchored to the decision; `GET /audit/verify` re-derives everything and returns a **ledger root** to keep outside the database | `integrity.py`, `repository.add_audit_event` | `tests/test_controls.py` — edits, deleted events, truncation and rewritten approvers are all detected |
 | 8 | Smuggled decision fields in the payload (`"decision": "auto_approved"`) | Unknown fields are dropped at the boundary; the verdict is always recomputed | `models.from_dict` | red-team family *field smuggling* |
 | 9 | Abuse / brute force | Per-client rate limiting incl. login | `ratelimit.py` | `tests/test_ratelimit.py` |
 | 10 | A future change silently weakens safety | **Two CI gates** on every push: benchmark (0 false approvals) and red team (0 unauthorized approvals) | `.github/workflows/ci.yml` | CI run summary |
@@ -92,7 +92,8 @@ All numbers below are reproducible on a laptop with no API key.
 |---|---|---|
 | **Red-team suite** — 61 hand-written attacks in 10 families × 3 engines (`local`, `langgraph`, `crewai+hostile-llm`) | **0 / 129 unauthorized approvals**, **54 / 54 injections flagged**, 183 / 183 runs pass, engines agree on every attack | `python run_redteam.py --check` → [`benchmark/REDTEAM.md`](benchmark/REDTEAM.md) |
 | **Evaluation benchmark** — 1,000 **synthetic** cases on the deterministic engine, ground truth from an independent policy oracle (policy conformance, not real-world accuracy) | **100% accuracy, 0 false approvals**, violation & duplicate F1 = 1.0 | `python run_eval.py --check` → [`benchmark/RESULTS.md`](benchmark/RESULTS.md) |
-| **Test suite** | **243 tests** — guardrail, engines, API, RBAC, separation of duties, audit, input guard, MCP, rate limiting, decision records, hostile-LLM | `pytest -q` |
+| **Tamper evidence** | Editing a decision, editing / deleting / truncating audit events, or rewriting who approved — **all detected** | `pytest tests/test_controls.py` · `GET /audit/verify` |
+| **Test suite** | **265 tests** — guardrail, engines, API, RBAC, separation of duties, dual control, hash-chained audit, cross-call history checks, input guard, MCP, rate limiting, decision records, hostile-LLM | `pytest -q` |
 | **CI** | Python 3.10–3.12, Postgres integration, Docker build, **both safety gates** | [Actions](https://github.com/furqunali/agentic-finance-crew/actions/workflows/ci.yml) |
 | **Live demo** | Key-free local engine | [agentic-finance-crew-deploy.vercel.app](https://agentic-finance-crew-deploy.vercel.app) |
 | **Transparency** | Model card + per-decision explainable record (`/decisions/{id}/explanation`) | [`MODEL_CARD.md`](MODEL_CARD.md) |
@@ -112,7 +113,7 @@ The same suite was run against the previous release (`855f5d9`, kept as [`benchm
 | Injection: `"decision": "auto_approved"` not flagged (flag runs) | 3 missed | **0** | Guard pattern covers quoted JSON verdicts |
 | **Total** | **48 / 129** | **0 / 129** | |
 
-Plus one control the red team does not cover by itself: **separation of duties** (a reviewer approving their own expense) — added and tested (`403`).
+Plus controls the red team does not cover by itself, each added and tested: **separation of duties** (no self-approval, `403`), **dual control** above $5,000, **cross-call duplicate / split checks** against stored history, and a **tamper-evident, hash-chained audit trail** with `GET /audit/verify`.
 
 ## ⚠️ Limitations
 
@@ -122,12 +123,12 @@ Agentic Finance Crew is a prototype for governed expense-decision workflows. Its
 - **The real LLM is not benchmarked in CI.** CI has no API key; the red team drives the real CrewAI code path with a *hostile stand-in model*. That proves the guardrail holds against the worst-case output — it does not measure the quality or honesty of a real model's narrative.
 - **Misleading narratives reach humans.** A manipulated model can't approve anything, but its rationale is shown to reviewers and could nudge them (automation bias). Mitigation today: the verdict and rules fired are shown separately from the narrative.
 - **The input guard is heuristic.** Pattern- and Unicode-based; novel paraphrases, other languages or encodings (e.g. base64) can slip past it. Impact is bounded — an unflagged injection still can't approve spend — but an unflagged injection does reach the model's prompt.
-- **Single human approver**, even for very large amounts; no dual control or approval tiers yet. Reviewers can still rubber-stamp.
+- **Two approvers at most.** Dual control applies above one threshold ($5,000, configurable); there are no further tiers by amount or role. Reviewers can still rubber-stamp.
 - **Depends on reviewer availability.** Routed requests wait in the queue until an authorized reviewer acts; there is no escalation timer or backup approver. The system supports human accountability — it does not replace it.
-- **History-bound checks.** Duplicate and split-purchase detection only see the history supplied to the call (a batch); a single `/approve` request is not compared with previously stored decisions. Split detection is same-day and same-category, and only for dated requests.
+- **History look-back is bounded.** Duplicates and split purchases are checked against the employee's stored decisions from the last 90 days (configurable). Split detection is same-day and same-category, and only for dated requests; a genuine retry of the same request is treated as a duplicate and sent to a human (fail closed).
 - **Static thresholds**; currency-agnostic; the confidence value is per-branch, not calibrated.
 - **Deployment hygiene is on the operator:** the bootstrap `admin/admin` account must be changed; `AUTH_DISABLED` (local single-user mode) turns off login **and** separation of duties; JWT is HS256 with a shared secret; no MFA; rate limits are per process.
-- **Audit trail is append-only by application, not cryptographically tamper-evident** — a database administrator could still alter rows.
+- **Tamper evidence, not tamper proofing.** Edits, deletions and truncation are detected, but someone with full database write access could recompute every hash. That is caught only by comparing the `ledger_root` from `GET /audit/verify` with a copy kept outside the database — exporting it on a schedule is left to the operator.
 - **Auto-approved decisions cannot be reopened** through the API; a clawback/reversal workflow would be needed before connecting this to a payment system.
 - **Not a certified financial-control system.** Production use would need organization-specific policy configuration, a security review, integration testing, monitoring and operational sign-off.
 
@@ -189,7 +190,7 @@ All three call the **same shared tools** for the hard rules, and all funnel thro
 - **Prompt-injection + PII guard** — every free-text field is screened before any LLM sees it: suspected injections are routed to a human (never auto-approved) with the reason in the audit trail; emails, phones, cards, IBANs and national IDs are redacted from prompts and logs (OWASP LLM01 / LLM02).
 - **MCP server** — the approval workflow as Model Context Protocol tools (JSON-RPC 2.0 over stdio, no new dependency) so AI assistants can submit expenses and query decisions — but never approve them.
 - **Runs with zero secrets** via the local engine — great for demos, CI and offline dev.
-- **FastAPI service** (`/auth/*`, `/approve`, `/approve/batch`, `/decisions`, `/decisions/{id}/explanation`, `/review-queue`, `/audit`, `/metrics`, `/health`) with OpenAPI docs at `/docs` and a web console at `/ui`.
+- **FastAPI service** (`/auth/*`, `/approve`, `/approve/batch`, `/decisions`, `/decisions/{id}/explanation`, `/review-queue`, `/audit`, `/audit/verify`, `/metrics`, `/health`) with OpenAPI docs at `/docs` and a web console at `/ui`.
 - **Fully containerized** (multi-stage, non-root, healthcheck) and **Kubernetes-ready**.
 - **CI on every push** — tests across Python 3.10–3.12, a Docker build/health check, and two safety gates (benchmark + red team).
 
@@ -229,7 +230,7 @@ cd agentic-finance-crew
 pip install -e ".[dev]"
 
 python run_demo.py          # run the crew over the sample batch (no key needed)
-pytest -q                   # 243 tests, all green
+pytest -q                   # 265 tests, all green
 uvicorn app:app --reload    # web console at http://localhost:8000/ui · API docs at /docs
 ```
 
@@ -286,6 +287,7 @@ engine or enable the real crew.
 | `RATE_LIMIT_PER_MINUTE` | `60`    | number                                    | Sustained calls per minute per client (token refill rate). |
 | `RATE_LIMIT_BURST` | `20`         | integer                                   | Bucket capacity: calls a client may make back-to-back. |
 | `RATE_LIMIT_TRUST_PROXY` | _(off)_ | `1` / `true`                             | Use the first `X-Forwarded-For` hop as the client IP. Only behind a proxy you control. |
+| `HISTORY_LOOKBACK_DAYS` | `90` | integer (`0` = off)                      | How far back stored decisions are checked for duplicates and same-day split purchases on new requests. |
 | `MCP_ACTOR`      | `mcp-client`   | any                                       | Identity recorded as `requested_by` for submissions made through the MCP server. |
 | `ENGINE`         | `auto`         | `auto` · `local` · `langgraph` · `crewai` | Which orchestrator runs. `auto` picks the real crew if opted-in **and** keyed, otherwise `local`. |
 | `USE_CREWAI`     | `false`        | `true` / `false`                          | Opt-in flag for the real CrewAI crew (needs a key too). |
@@ -495,7 +497,7 @@ curl -s "http://localhost:8000/audit?step=final_action&limit=50"
 
 ```bash
 pip install -e ".[dev]"      # pytest + httpx + langgraph
-pytest -q                    # 243 tests: domain logic, API, engines, persistence, audit, auth/RBAC, separation of duties, observability, evaluation, red team, hostile-LLM, UI, MCP server, input guard, rate limiting, decision records, error paths
+pytest -q                    # 265 tests: domain logic, API, engines, persistence, audit + hash chain, auth/RBAC, separation of duties, dual control, history checks, observability, evaluation, red team, hostile-LLM, UI, MCP server, input guard, rate limiting, decision records, error paths
 python run_redteam.py --check   # adversarial red-team suite (all engines) — 0 unauthorized approvals
 python run_demo.py           # end-to-end CLI smoke test over the sample batch
 ```
@@ -702,9 +704,10 @@ three engines get it identically.
 - ✅ **Prompt-injection + PII guard, rate limiting, MCP server, model card, decision records** — *done*.
 - ✅ **Red-team suite + hardening** (fail-closed parsing, category/split/duplicate evasion, separation of duties) with a CI gate — *done*.
 - ✅ **Public live demo** (key-free local engine) — *done*.
-- **Dual control** for high-value items (two distinct approvers above a threshold) and approval tiers by amount.
-- **History-aware checks** against stored decisions (duplicates / split purchases across calls and days).
-- **Tamper-evident audit trail** (hash-chained events) and a reversal/clawback workflow.
+- ✅ **Dual control** for high-value items (two distinct approvers above a threshold) — *done*.
+- ✅ **History-aware checks** against stored decisions (duplicates / split purchases across calls and days) — *done*.
+- ✅ **Tamper-evident audit trail** (hash-chained events, `/audit/verify`, ledger root) — *done*.
+- Approval tiers by amount/role, a reversal/clawback workflow, and scheduled export of the ledger root to write-once storage.
 - **Real-LLM evaluation** — score a live model's rationale against the deterministic ground truth, and run the red team with a real key in a scheduled job.
 - Multilingual / encoded-injection coverage for the input guard.
 - Receipt/invoice ingestion (PDF/image OCR) and Slack/email approval actions.

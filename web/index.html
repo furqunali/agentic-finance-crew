@@ -421,7 +421,8 @@ VIEWS.queue = async function(){
       const say=`${it.employee} requests ${money(it.amount,it.currency)} for ${it.category}. ${it.rationale}`;
       return `<div class="qitem" id="q_${it.id}">
         <div class="hd"><div><b>${esc(it.employee)}</b> · ${esc(it.category)} · <b>${money(it.amount,it.currency)}</b>
-          &nbsp;<span class="pill mut">${esc(it.request_id)}</span></div>
+          &nbsp;<span class="pill mut">${esc(it.request_id)}</span>
+          ${(it.approvals_required||1)>1?`&nbsp;<span class="pill rev" title="Dual control: two different reviewers must approve">🔐 ${it.approvals_received||0} of ${it.approvals_required} approvals${it.first_approved_by?` · 1st: ${esc(it.first_approved_by)}`:""}</span>`:""}</div>
           <div class="row"><span class="pill rev">Risk ${it.risk_score}</span>${listenBtn(say)}</div></div>
         <div style="color:var(--mut);font-size:13.5px;margin:8px 0">${esc(it.rationale)}</div>
         ${rules?`<ul class="rules">${rules}</ul>`:""}
@@ -437,6 +438,10 @@ async function resolve(id, action){
   try{
     const note=($("#note_"+id)||{}).value||"";
     const r=await api(`/decisions/${id}/${action}`,{method:"POST",body:{note}});
+    if(r.status==="pending_review"){
+      toast(`#${id} approval ${r.approvals_received} of ${r.approvals_required} recorded — a second, different reviewer must approve`,"ok");
+      return VIEWS.queue();
+    }
     const el=$("#q_"+id); if(el){ el.style.transition=".3s"; el.style.opacity=".35"; setTimeout(()=>el.remove(),320); }
     toast(`#${id} ${r.status.replace("_"," ")} by ${r.resolved_by}`,"ok");
   }catch(err){ toast(err.message,"err"); }

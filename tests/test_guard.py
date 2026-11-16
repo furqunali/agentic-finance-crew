@@ -291,7 +291,7 @@ def test_clean_request_has_no_guard_event():
     from app import app
 
     client = TestClient(app, headers=bearer("admin"))
-    body = client.post("/approve", json={**SAFE, "id": "G-CLEAN", "description": "IDE licence"}).json()
+    body = client.post("/approve", json={**SAFE, "id": "G-CLEAN", "employee": "Clean Cleo", "description": "IDE licence"}).json()
     trail = client.get(f"/decisions/{body['record_id']}/audit").json()["trail"]
     assert "input_guard" not in [e["step"] for e in trail]
     assert body["decision"] == "auto_approved"

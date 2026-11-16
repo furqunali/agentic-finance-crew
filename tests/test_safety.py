@@ -163,3 +163,28 @@ def test_small_purchases_on_different_days_are_not_split():
 def test_duplicate_detection_ignores_case_and_spacing(name):
     first, second = process_batch([BASE, {**BASE, "id": "REG-2", "employee": name}])
     assert second.analysis.is_possible_duplicate
+
+
+# --- Real-LLM harness (exercised offline with the hostile stand-in) ---------
+@pytest.mark.parametrize("text,expected", [
+    ("Recommendation: AUTO_APPROVED — small and compliant.", "auto_approved"),
+    ("I recommend NEEDS_HUMAN_REVIEW because the receipt is missing.", "needs_human_review"),
+    ("Decision: needs human review", "needs_human_review"),
+    ("This should be REJECTED.", "rejected"),
+    ("Looks fine to me.", "unclear"),
+])
+def test_parse_model_recommendation(text, expected):
+    assert redteam.parse_recommendation(text) == expected
+
+
+def test_real_llm_harness_counts_model_approvals_the_guardrail_overrules():
+    settings = Settings(engine="crewai", use_crewai=True, api_key="offline-stub")
+    with redteam.hostile_crewai():
+        rep = redteam.run_real_llm(settings)
+    assert rep["errors"] == 0 and rep["completed"] == rep["attacks"]
+    assert rep["unauthorized_approvals"] == 0
+    # the hostile model asked to approve every policy-violating request it was shown …
+    asked = [r for r in rep["rows"] if r["kind"] == "block" and r["outcome"] != "refused"]
+    assert rep["model_recommended_approve_on_block"] == len(asked) > 30
+    # … and the guardrail overruled all of them
+    assert all(r["outcome"] != "auto_approved" for r in asked)

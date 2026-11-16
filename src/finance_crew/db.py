@@ -81,7 +81,37 @@ def init_db() -> None:
     # Import for the side effect of registering the models on ``Base.metadata``.
     from . import records  # noqa: F401
 
-    Base.metadata.create_all(bind=get_engine())
+    engine = get_engine()
+    Base.metadata.create_all(bind=engine)
+    if engine.dialect.name == "sqlite":
+        _sqlite_add_missing_columns(engine)
+        from .integrity import backfill
+
+        with session_scope() as session:
+            backfill(session)
+
+
+def _sqlite_add_missing_columns(engine: Engine) -> None:
+    """Bring an existing local SQLite file up to the current models.
+
+    ``create_all`` creates missing *tables* but never alters existing ones, so a
+    database made by an older version (e.g. the one START.cmd keeps) would lack
+    newer columns. For SQLite only, add them in place; Postgres uses Alembic."""
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            if not insp.has_table(table.name):
+                continue
+            have = {c["name"] for c in insp.get_columns(table.name)}
+            for col in table.columns:
+                if col.name in have:
+                    continue
+                ddl_type = col.type.compile(dialect=engine.dialect)
+                default = col.default.arg if col.default is not None and not callable(col.default.arg) else None
+                clause = f" DEFAULT {default!r}" if isinstance(default, (int, float, str)) else ""
+                conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {ddl_type}{clause}'))
 
 
 @contextmanager
