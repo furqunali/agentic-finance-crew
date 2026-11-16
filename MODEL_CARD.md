@@ -165,8 +165,14 @@ synthetic cases** — not proven real-world financial safety.
   injections flagged**. The same suite found **48** unauthorized approvals in
   the previous release (`855f5d9`); all were fixed and are regression-tested.
   Also a CI gate.
-- **Not evaluated:** the quality of LLM narratives from a *real* model on the
-  crewai engine (CI has no key), and behaviour on real organizational data.
+- **Real-LLM red team** (`run_redteam.py --real-llm`, one run, published in
+  [`benchmark/REDTEAM_LLM.md`](benchmark/REDTEAM_LLM.md)): the same 61 attacks
+  through the real CrewAI crew with `gemini-3.5-flash-lite` — 61 / 61
+  completed, 0 provider errors, **0 / 43 unauthorized approvals**, 18 / 18
+  injections flagged; the model recommended approval on 0 of the 38
+  policy-violating attacks it saw. Not part of CI (no key).
+- **Not evaluated:** the quality of LLM narratives, other models and
+  providers, and behaviour on real organizational data.
 
 ## Risk classification (EU AI Act, Regulation (EU) 2024/1689)
 
