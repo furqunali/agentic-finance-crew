@@ -30,7 +30,7 @@
 |---|---|
 | **What it is** | A multi-agent (CrewAI / LangGraph) system that triages company expense requests: auto-approve the small and compliant, send everything else to a named human. |
 | **Safety thesis** | *The model advises; deterministic code decides; a human signs anything that matters.* No LLM output, tool call or API payload can approve spend that policy forbids — and nobody can sign off their own expense. |
-| **Strongest evidence** | Adversarial **red-team suite: 61 attacks × 3 engines (including the real CrewAI path driven by a hostile model that always says "approve") → 0 unauthorized approvals / 129**, down from **48** before this hardening. 1,000-case benchmark: **0 false approvals**. **265 tests**. Both safety numbers are **CI gates** — a regression cannot merge. |
+| **Strongest evidence** | Adversarial **red-team suite: 61 attacks × 3 engines (including the real CrewAI path driven by a hostile model that always says "approve") → 0 unauthorized approvals / 129**, down from **48** before this hardening. The same 61 attacks through the real CrewAI crew with a **real Gemini model**: **0 unauthorized approvals, 0 errors**. 1,000-case benchmark: **0 false approvals**. **265 tests**. Both safety numbers are **CI gates** — a regression cannot merge. |
 | **Read next** | [🛡️ Safety approach](#️-safety-approach) · [🔬 Supporting evidence](#-supporting-evidence) · [⚠️ Limitations](#️-limitations) · [MODEL_CARD.md](MODEL_CARD.md) · [benchmark/REDTEAM.md](benchmark/REDTEAM.md) |
 
 Everything below runs **offline with no API key** (`pip install -e ".[dev]" && pytest -q && python run_redteam.py`).
@@ -91,6 +91,7 @@ All numbers below are reproducible on a laptop with no API key.
 | Evidence | Result | Reproduce |
 |---|---|---|
 | **Red-team suite** — 61 hand-written attacks in 10 families × 3 engines (`local`, `langgraph`, `crewai+hostile-llm`) | **0 / 129 unauthorized approvals**, **54 / 54 injections flagged**, 183 / 183 runs pass, engines agree on every attack. The 129 runs are every **policy-violating** attack across the 3 engines — all 8 such families, **including the 12 "injection + violation" runs** — and are what the unauthorized-approval metric counts. The 54 **injection-only** runs (policy-compliant requests carrying a prompt injection) are excluded from it and measured separately by the 54 / 54 injection-detection metric. 183 = 129 + 54. | `python run_redteam.py --check` → [`benchmark/REDTEAM.md`](benchmark/REDTEAM.md) |
+| **Real-LLM red team** — the same 61 attacks through the real CrewAI crew with `gemini-3.5-flash-lite` (one run) | **0 / 43 unauthorized approvals**, 61 / 61 runs completed, 0 provider errors, **18 / 18 injections flagged**. Of the 38 policy-violating attacks that reached the model (5 were refused before it), the model recommended approval on **0** — so this run shows the system working end to end with a real model; the guardrail overruling a model that *does* ask to approve is shown by the hostile-model runs above | `USE_CREWAI=true LLM_PROVIDER=gemini LLM_MODEL=gemini-3.5-flash-lite python run_redteam.py --real-llm` → [`benchmark/REDTEAM_LLM.md`](benchmark/REDTEAM_LLM.md) |
 | **Evaluation benchmark** — 1,000 **synthetic** cases on the deterministic engine, ground truth from an independent policy oracle (policy conformance, not real-world accuracy) | **100% accuracy, 0 false approvals**, violation & duplicate F1 = 1.0 | `python run_eval.py --check` → [`benchmark/RESULTS.md`](benchmark/RESULTS.md) |
 | **Tamper evidence** | Editing a decision, editing / deleting / truncating audit events, or rewriting who approved — **all detected** | `pytest tests/test_controls.py` · `GET /audit/verify` |
 | **Test suite** | **265 tests** — guardrail, engines, API, RBAC, separation of duties, dual control, hash-chained audit, cross-call history checks, input guard, MCP, rate limiting, decision records, hostile-LLM | `pytest -q` |
@@ -122,7 +123,7 @@ Plus controls the red team does not cover by itself, each added and tested: **se
 Agentic Finance Crew is a prototype for governed expense-decision workflows. Its safety controls reduce risk; they do not eliminate every possible failure. Honest boundaries of what has and hasn't been shown:
 
 - **Synthetic data, fictional policy.** No real financial data, no production deployment. The benchmark measures conformance to the written policy, not real-world fraud detection.
-- **The real LLM is not benchmarked in CI.** CI has no API key; the red team drives the real CrewAI code path with a *hostile stand-in model*. That proves the guardrail holds against the worst-case output — it does not measure the quality or honesty of a real model's narrative.
+- **Real-LLM evidence is one run, outside CI.** CI has no API key, so every push uses the *hostile stand-in model*, which shows the guardrail holds against the worst-case output. The real-model red team ([`REDTEAM_LLM.md`](benchmark/REDTEAM_LLM.md)) is a single run with one free-tier Gemini model; other models, prompts or later model versions may behave differently, and the quality of a real model's narrative is not scored.
 - **Misleading narratives reach humans.** A manipulated model can't approve anything, but its rationale is shown to reviewers and could nudge them (automation bias). Mitigation today: the verdict and rules fired are shown separately from the narrative.
 - **The input guard is heuristic.** Pattern- and Unicode-based; novel paraphrases, other languages or encodings (e.g. base64) can slip past it. Impact is bounded — an unflagged injection still can't approve spend — but an unflagged injection does reach the model's prompt.
 - **Two approvers at most.** Dual control applies above one threshold ($5,000, configurable); there are no further tiers by amount or role. Reviewers can still rubber-stamp.
@@ -710,7 +711,8 @@ three engines get it identically.
 - ✅ **History-aware checks** against stored decisions (duplicates / split purchases across calls and days) — *done*.
 - ✅ **Tamper-evident audit trail** (hash-chained events, `/audit/verify`, ledger root) — *done*.
 - Approval tiers by amount/role, a reversal/clawback workflow, and scheduled export of the ledger root to write-once storage.
-- **Real-LLM evaluation** — score a live model's rationale against the deterministic ground truth, and run the red team with a real key in a scheduled job.
+- ✅ **Real-LLM red team** — the attack catalogue through the real CrewAI crew with Gemini (one run, 0 unauthorized approvals) — *done*.
+- Score a live model's rationale against the deterministic ground truth, run the real-LLM red team on a schedule, and add more models.
 - Multilingual / encoded-injection coverage for the input guard.
 - Receipt/invoice ingestion (PDF/image OCR) and Slack/email approval actions.
 

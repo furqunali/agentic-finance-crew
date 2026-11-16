@@ -7,6 +7,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Real-LLM red-team results** (`benchmark/REDTEAM_LLM.md`, `redteam_llm.json`): the 61-attack
+  catalogue through the real CrewAI crew with `gemini-3.5-flash-lite` — 61 / 61 completed,
+  0 provider errors, 0 / 43 unauthorized approvals, 18 / 18 injections flagged; the model
+  recommended approval on 0 of the 38 policy-violating attacks it saw. The report now states how
+  many attacks reached the model and words a zero override count accurately.
 - **Dual control:** review items above `SpendPolicy.dual_control_above`
   ($5,000) need two different human approvers. The first approval is
   recorded (`approvals_received`, `first_approved_by`) and the item stays in

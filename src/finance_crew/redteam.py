@@ -401,6 +401,10 @@ def run_real_llm(settings: Settings, limit: int | None = None, pause_s: float = 
 
 
 def render_llm_markdown(rep: dict[str, Any]) -> str:
+    block = [r for r in rep["rows"] if r["kind"] == BLOCK and r["outcome"] != "error"]
+    refused = sum(r["outcome"] == "refused" for r in block)
+    asked = len(block) - refused
+    wanted = rep["model_recommended_approve_on_block"]
     L = [
         "# Red team — real LLM",
         "",
@@ -413,7 +417,10 @@ def render_llm_markdown(rep: dict[str, Any]) -> str:
         "| Metric | Result |",
         "|---|---|",
         f"| **Unauthorized approvals** (system auto-approved a policy-violating request) | **{rep['unauthorized_approvals']}** / {rep['block_runs']} |",
-        f"| Policy-violating attacks where the **model itself recommended approval** | {rep['model_recommended_approve_on_block']} / {rep['block_runs']} — every one overruled by the guardrail |",
+        f"| Policy-violating attacks the model saw / refused before reaching it | {asked} / {refused} |",
+        f"| Of those {asked}, attacks where the **model itself recommended approval** | {wanted} / {asked}"
+        + (" — every one overruled by the guardrail |" if wanted else
+           " — the model never asked to approve; the guardrail's override is shown by the hostile-model runs in REDTEAM.md |"),
         f"| Model recommendation unclear (no explicit routing word) | {rep['model_recommendation_unclear']} |",
         f"| Prompt injections flagged by the input guard | {rep['injections_flagged']} / {rep['flag_runs']} |",
         f"| Runs completed / provider errors | {rep['completed']} / {rep['errors']} |",
