@@ -82,6 +82,9 @@ class DecisionRecord(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     request_id: Mapped[str] = mapped_column(String(64), index=True)
     employee: Mapped[str] = mapped_column(String(120), index=True)
+    # Normalized identity (case/spacing/Unicode-folded) for history lookups.
+    employee_key: Mapped[str] = mapped_column(String(120), index=True, default="")
+    expense_date: Mapped[str] = mapped_column(String(32), default="")
     category: Mapped[str] = mapped_column(String(40))
     amount: Mapped[float] = mapped_column(Float)
     currency: Mapped[str] = mapped_column(String(8), default="USD")
@@ -102,6 +105,16 @@ class DecisionRecord(Base):
     resolved_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     resolution_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Dual control: high-value items need two different human approvers.
+    approvals_required: Mapped[int] = mapped_column(Integer, default=1)
+    first_approved_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    first_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Tamper evidence (see integrity.py): digest of the write-once fields, and
+    # the latest link of this decision's hash-chained audit trail.
+    record_hash: Mapped[str] = mapped_column(String(64), default="")
+    head_hash: Mapped[str] = mapped_column(String(64), default="")
 
     # Observability: how long the decision took, and (real crew only) LLM usage.
     latency_ms: Mapped[float] = mapped_column(Float, default=0.0)
@@ -129,11 +142,17 @@ class DecisionRecord(Base):
         latency_ms: float = 0.0,
         tokens: int = 0,
         cost_usd: float = 0.0,
+        approvals_required: int = 1,
     ) -> "DecisionRecord":
         """Build a storable record from a domain request + its verdict."""
+        from .tools import person_key
+
+        status = _DECISION_TO_STATUS.get(result.decision.value, Status.PENDING_REVIEW)
         return cls(
             request_id=result.request_id,
             employee=request.employee,
+            employee_key=person_key(request.employee),
+            expense_date=request.date or "",
             category=result.intake.normalized_category or request.category,
             amount=request.amount,
             currency=request.currency,
@@ -146,7 +165,8 @@ class DecisionRecord(Base):
             engine=result.engine,
             model_version=model_version or result.engine,
             requested_by=requested_by or request.employee,
-            status=_DECISION_TO_STATUS.get(result.decision.value, Status.PENDING_REVIEW),
+            status=status,
+            approvals_required=approvals_required if status == Status.PENDING_REVIEW else 1,
             latency_ms=round(latency_ms, 3),
             tokens=tokens,
             cost_usd=cost_usd,
@@ -166,6 +186,12 @@ class DecisionRecord(Base):
     @property
     def is_pending_review(self) -> bool:
         return self.status == Status.PENDING_REVIEW
+
+    @property
+    def approvals_received(self) -> int:
+        if self.status == Status.HUMAN_APPROVED:
+            return int(self.approvals_required or 1)
+        return 1 if self.first_approved_by else 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -192,6 +218,12 @@ class DecisionRecord(Base):
             "resolved_by": self.resolved_by,
             "resolved_at": self.resolved_at.isoformat() if self.resolved_at else None,
             "resolution_note": self.resolution_note,
+            "approvals_required": int(self.approvals_required or 1),
+            "approvals_received": self.approvals_received,
+            "first_approved_by": self.first_approved_by,
+            "first_approved_at": self.first_approved_at.isoformat() if self.first_approved_at else None,
+            "expense_date": self.expense_date or None,
+            "record_hash": self.record_hash,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
@@ -238,6 +270,9 @@ class AuditEvent(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), default=_utcnow
     )
+    # Hash chain (integrity.py): link to the previous event and this event's link.
+    prev_hash: Mapped[str] = mapped_column(String(64), default="")
+    hash: Mapped[str] = mapped_column(String(64), default="")
 
     decision_row: Mapped["DecisionRecord"] = relationship(back_populates="events")
 
@@ -249,4 +284,6 @@ class AuditEvent(Base):
             "actor": self.actor,
             "detail": self.detail,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+            "prev_hash": self.prev_hash,
+            "hash": self.hash,
         }

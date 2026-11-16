@@ -152,7 +152,14 @@ def build_decision_record(
             or ("system (auto-resolved, no human review required)" if auto else None),
             "resolved_at": _iso(record.resolved_at),
             "note": _redact(record.resolution_note),
+            "approvals_required": int(record.approvals_required or 1),
+            "approvals_received": record.approvals_received,
+            "first_approved_by": record.first_approved_by,
             "events": human_events,
+        },
+        "integrity": {
+            "record_hash": record.record_hash,
+            "audit_chain_head": record.head_hash,
         },
         "timestamps": {
             "received_at": _iso(record.created_at),
@@ -205,6 +212,11 @@ def render_markdown(rec: dict[str, Any]) -> str:
         f"- Approved/rejected by: {h['resolved_by'] or 'pending'}"
         + (f" at {h['resolved_at']}" if h["resolved_at"] else ""),
     ]
+    if h["approvals_required"] > 1:
+        lines.append(
+            f"- Dual control: {h['approvals_received']} of {h['approvals_required']} approvals"
+            + (f" (first: {h['first_approved_by']})" if h["first_approved_by"] else "")
+        )
     if h["note"]:
         lines.append(f"- Note: {h['note']}")
     lines.append("")

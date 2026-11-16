@@ -10,6 +10,13 @@ import os
 from dataclasses import dataclass, field
 
 
+def _int_env(name: str, default: int) -> int:
+    try:
+        return max(0, int(os.getenv(name, default)))
+    except ValueError:
+        return default
+
+
 @dataclass(frozen=True)
 class SpendPolicy:
     """Fictional demo spend policy. Tune per organization."""
@@ -17,6 +24,7 @@ class SpendPolicy:
     auto_approve_limit: float = 200.0        # <= this and compliant -> auto approve
     human_review_limit: float = 2000.0       # > this -> always a human decides
     receipt_required_above: float = 50.0     # receipt mandatory above this amount
+    dual_control_above: float = 5000.0       # > this -> two different humans must approve
     category_limits: dict[str, float] = field(
         default_factory=lambda: {
             "travel": 1500.0,
@@ -41,6 +49,9 @@ class Settings:
     model: str = "gpt-4o-mini"
     api_key: str | None = None
     policy: SpendPolicy = field(default_factory=SpendPolicy)
+    # How far back stored decisions are consulted for duplicate / split-purchase
+    # checks on new requests (0 disables the stored-history lookup).
+    history_lookback_days: int = 90
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -53,6 +64,7 @@ class Settings:
             llm_provider=provider,
             model=os.getenv("LLM_MODEL", "gemini-1.5-flash" if provider == "gemini" else "gpt-4o-mini"),
             api_key=os.getenv(key_env),
+            history_lookback_days=_int_env("HISTORY_LOOKBACK_DAYS", 90),
         )
 
     @property

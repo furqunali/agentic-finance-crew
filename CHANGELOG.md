@@ -7,6 +7,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Dual control:** review items above `SpendPolicy.dual_control_above`
+  ($5,000) need two different human approvers. The first approval is
+  recorded (`approvals_received`, `first_approved_by`) and the item stays in
+  the queue; the same person approving twice is refused (`403`); one reject
+  ends it. Shown in the web console queue and in decision records.
+- **Tamper-evident audit trail** (`finance_crew.integrity`): a SHA-256 digest
+  of each decision's write-once fields (`record_hash`), hash-chained audit
+  events (`prev_hash` / `hash`) anchored to the decision, the chain head kept
+  on the decision (`head_hash`) to catch truncation, and
+  `GET /audit/verify` (Auditor/Admin) returning problems + a ledger root.
+  Existing rows are back-filled.
+- **History-aware checks:** new requests are checked for duplicates and
+  same-day split purchases against the employee's stored decisions
+  (`HISTORY_LOOKBACK_DAYS`, default 90; `0` disables), not only the batch.
+- **Real-LLM red team:** `python run_redteam.py --real-llm` runs the attack
+  catalogue through the real CrewAI crew and a real model, recording what the
+  model recommended vs what the system decided (`benchmark/REDTEAM_LLM.md`).
+- Alembic migration `0005_dual_control_integrity`; local SQLite databases are
+  upgraded in place on start-up. Tests 243 → 265.
 - **Adversarial red-team suite** (`finance_crew.redteam`, `run_redteam.py`,
   `make redteam`): 61 hand-written attacks in 10 families run on every engine,
   including the real CrewAI orchestrator driven by a hostile stand-in model

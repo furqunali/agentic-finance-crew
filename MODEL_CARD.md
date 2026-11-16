@@ -63,19 +63,20 @@ the MCP server but cannot approve or reject.
 - **Fictional demo policy.** Limits in `config.SpendPolicy` are illustrative.
 - **Currency-agnostic thresholds.** Limits are compared to `amount` as a
   number; there is no FX conversion.
-- **Duplicate and split-purchase detection are history-bound**: they compare
-  against the history supplied (earlier items in a batch), on a normalized
-  employee identity. A single `/approve` call has no history, so cross-request
-  duplicates are not detected there. Split detection is same-day,
+- **Duplicate and split-purchase detection** compare against the batch and
+  the employee's stored decisions from the last `HISTORY_LOOKBACK_DAYS`
+  (default 90), on a normalized identity. Split detection is same-day,
   same-category, and only for dated requests.
 - **Fail-closed inputs:** unknown categories, unparseable receipt flags and
   non-finite or boolean amounts are routed to a human or refused — never
   auto-approved.
-- **Single approver** for review items, even large ones; no dual control yet.
+- **At most two approvers** (one dual-control threshold); no further tiers.
 - **Misleading narratives:** a manipulated model cannot approve, but its
   rationale is shown to reviewers and could bias them.
-- **Audit trail** is append-only by application, not cryptographically
-  tamper-evident; auto-approved decisions have no reversal workflow.
+- **Tamper evidence, not tamper proofing:** someone with full database write
+  access could recompute every hash; comparing the ledger root with a copy
+  kept outside the database catches that. Auto-approved decisions have no
+  reversal workflow.
 - **Confidence is not a calibrated probability** — it is a fixed value per
   decision branch (0.95 / 0.9 / 0.85 / 0.8).
 - **Input guard is heuristic.** Phrase-level patterns catch common prompt
@@ -97,6 +98,13 @@ the MCP server but cannot approve or reject.
 - **Separation of duties:** the person who submitted a request cannot approve
   or reject it (`403`); another reviewer must. (Disabled only in the
   single-user local mode `AUTH_DISABLED`.)
+- **Dual control:** above `dual_control_above` ($5,000 in the demo policy) two
+  *different* reviewers must approve; the first approval keeps the item in
+  the queue, and one reject ends it.
+- **Tamper evidence:** decision fields are hashed and every audit event is
+  SHA-256 hash-chained to the previous one; `GET /audit/verify` (Auditor)
+  reports any edit, deletion or truncation and a ledger root to keep
+  outside the database.
 - The machine verdict is **never overwritten**: the record keeps both what
   the AI recommended and what the human decided.
 - Suspected prompt-injection attempts are always routed to a human.

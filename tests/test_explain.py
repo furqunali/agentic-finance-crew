@@ -116,7 +116,7 @@ def test_guard_flag_and_pii_are_explained_but_redacted():
 
 
 def test_markdown_export():
-    rid = _submit({**AUTO, "id": "XP-MD"})
+    rid = _submit({**AUTO, "id": "XP-MD", "employee": "Md Mae"})
     resp = _explain(rid, format="markdown")
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/markdown")

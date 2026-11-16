@@ -9,17 +9,19 @@ audit events, inside a single transaction owned by the caller's session_scope.
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from . import __version__, observability, repository
 from .config import Settings
+from .integrity import record_digest
 from .errors import ConflictError, ForbiddenError, NotFoundError, ValidationError
 from .models import ApprovalResult, ExpenseRequest
 from .orchestrator import build_orchestrator
 from .records import DecisionRecord, Status, Step
+from .tools import person_key
 
 
 def _model_version(result: ApprovalResult, settings: Settings) -> str:
@@ -87,11 +89,14 @@ def _persist(
     """
     tokens = 0
     cost_usd = observability.estimate_cost(settings.model, tokens)
+    dual = request.amount > settings.policy.dual_control_above
     record = DecisionRecord.from_result(
         request, result, requested_by=requested_by,
         model_version=_model_version(result, settings),
         latency_ms=latency_ms, tokens=tokens, cost_usd=cost_usd,
+        approvals_required=2 if dual else 1,
     )
+    record.record_hash = record_digest(record)
     session.add(record)
     session.flush()
     _write_initial_trail(session, record, result)
@@ -102,6 +107,28 @@ def _persist(
     observability.DECISION_LATENCY.observe(latency_ms / 1000.0)
     observability.record_llm_usage(result.engine, tokens, cost_usd)
     return record
+
+
+def stored_history(session: Session, request: ExpenseRequest, settings: Settings) -> list[ExpenseRequest]:
+    """This employee's earlier stored decisions (within the look-back window) as
+    history, so duplicates and same-day split purchases are caught across
+    separate API calls and days — not only inside one batch."""
+    days = settings.history_lookback_days
+    if days <= 0:
+        return []
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    out: list[ExpenseRequest] = []
+    for r in repository.recent_decisions_for(session, person_key(request.employee)):
+        created = r.created_at
+        if created is not None and created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        if created is not None and created < cutoff:
+            continue
+        out.append(ExpenseRequest(
+            id=f"stored-{r.id}", employee=r.employee, category=r.category,
+            amount=r.amount, currency=r.currency, date=r.expense_date or "",
+        ))
+    return out
 
 
 def decide_and_store(
@@ -118,7 +145,8 @@ def decide_and_store(
     """
     settings = settings or Settings.from_env()
     request = ExpenseRequest.from_dict(payload)
-    hist = [ExpenseRequest.from_dict(h) for h in (history or [])]
+    hist = stored_history(session, request, settings)
+    hist += [ExpenseRequest.from_dict(h) for h in (history or [])]
     orchestrator = build_orchestrator(settings)
 
     t0 = time.perf_counter()
@@ -135,15 +163,23 @@ def decide_and_store_batch(
     settings: Settings | None = None,
     requested_by: str | None = None,
 ) -> list[tuple[ApprovalResult, int]]:
-    """Process + persist a batch; earlier items act as history for dup checks."""
+    """Process + persist a batch; earlier items act as history for dup checks.
+
+    With the stored-history look-back on, earlier batch items are already in
+    the database (each is flushed as it is stored), so they are found there;
+    otherwise the in-memory list of earlier items is used."""
     settings = settings or Settings.from_env()
     orchestrator = build_orchestrator(settings)
     out: list[tuple[ApprovalResult, int]] = []
     seen: list[ExpenseRequest] = []
     for payload in payloads:
         request = ExpenseRequest.from_dict(payload)
+        if settings.history_lookback_days > 0:
+            hist = stored_history(session, request, settings)
+        else:
+            hist = list(seen)
         t0 = time.perf_counter()
-        result = orchestrator.process(request, list(seen))
+        result = orchestrator.process(request, hist)
         latency_ms = (time.perf_counter() - t0) * 1000.0
         record = _persist(session, request, result, settings, requested_by, latency_ms)
         out.append((result, record.id))
@@ -165,6 +201,10 @@ def resolve_decision(
     The machine verdict is never mutated — the human outcome is layered on via
     ``status`` / ``resolved_*`` and two new audit events, preserving the full
     who-recommended-what-vs-who-decided-what trail.
+
+    Dual control: when the record needs two approvals, the first approve is
+    recorded (the item stays in the queue) and a *different* reviewer must give
+    the second. A reject from any eligible reviewer ends it at once.
     """
     action = (action or "").strip().lower()
     if action not in ("approve", "reject"):
@@ -187,14 +227,33 @@ def resolve_decision(
             "and cannot resolve it — another reviewer must"
         )
 
+    needs_two = int(record.approvals_required or 1) >= 2
+    if action == "approve" and needs_two and not record.first_approved_by:
+        record.first_approved_by = actor
+        record.first_approved_at = datetime.now(timezone.utc)
+        repository.add_audit_event(
+            session, record.id, Step.HUMAN_REVIEW, actor,
+            f"{actor} gave approval 1 of 2 (dual control)" + (f": {note}" if note else ""),
+        )
+        session.flush()
+        observability.RESOLUTIONS.labels("first_approval").inc()
+        return record
+    if (action == "approve" and needs_two and enforce_separation_of_duties
+            and _same_person(actor, record.first_approved_by)):
+        raise ForbiddenError(
+            f"dual control: {actor!r} already gave the first approval for decision "
+            f"{decision_id} — a second, different reviewer must approve"
+        )
+
     record.status = Status.HUMAN_APPROVED if action == "approve" else Status.HUMAN_REJECTED
     record.resolved_by = actor
     record.resolved_at = datetime.now(timezone.utc)
     record.resolution_note = note or None
 
+    step_note = " (approval 2 of 2, dual control)" if action == "approve" and needs_two else ""
     repository.add_audit_event(
         session, record.id, Step.HUMAN_REVIEW, actor,
-        f"{actor} {action}d the request" + (f": {note}" if note else ""),
+        f"{actor} {action}d the request{step_note}" + (f": {note}" if note else ""),
     )
     repository.add_audit_event(
         session, record.id, Step.FINAL_ACTION, actor,

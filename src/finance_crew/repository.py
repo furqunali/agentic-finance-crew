@@ -5,9 +5,12 @@ SQLAlchemy details and gives the tests one place to exercise storage.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .integrity import GENESIS, event_digest
 from .models import ApprovalResult, ExpenseRequest
 from .records import AuditEvent, DecisionRecord, Status, User
 
@@ -74,13 +77,36 @@ def list_review_queue(session: Session, *, limit: int = 50, offset: int = 0) -> 
     return list(session.scalars(stmt).all())
 
 
+def recent_decisions_for(session: Session, employee_key: str, *, limit: int = 500) -> list[DecisionRecord]:
+    """The latest stored decisions for one (normalized) employee, newest first —
+    the history new requests are checked against for duplicates and splits.
+    Intake-rejected rows are excluded: they never represented valid spend."""
+    stmt = (
+        select(DecisionRecord)
+        .where(DecisionRecord.employee_key == employee_key)
+        .where(DecisionRecord.status != Status.AUTO_REJECTED)
+        .order_by(DecisionRecord.id.desc())
+        .limit(max(1, limit))
+    )
+    return list(session.scalars(stmt).all())
+
+
 # --- Audit trail -------------------------------------------------------------
 def add_audit_event(
     session: Session, decision_id: int, step: str, actor: str, detail: str = ""
 ) -> AuditEvent:
-    """Append one immutable entry to a decision's audit trail."""
-    event = AuditEvent(decision_id=decision_id, step=step, actor=actor, detail=detail)
+    """Append one immutable, hash-chained entry to a decision's audit trail.
+
+    The event links to the decision's current chain head (or, for the first
+    event, to the decision's record digest), and becomes the new head."""
+    record = session.get(DecisionRecord, decision_id)
+    prev = (record.head_hash or record.record_hash or GENESIS) if record else GENESIS
+    event = AuditEvent(decision_id=decision_id, step=step, actor=actor, detail=detail,
+                       created_at=datetime.now(timezone.utc), prev_hash=prev)
+    event.hash = event_digest(prev, event)
     session.add(event)
+    if record is not None:
+        record.head_hash = event.hash
     session.flush()
     return event
 

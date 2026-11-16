@@ -25,7 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from finance_crew import observability, repository
+from finance_crew import integrity, observability, repository
 from finance_crew.auth import (
     CAN_ADMIN,
     auth_disabled,
@@ -502,3 +502,16 @@ def audit_log(
     """Global append-only audit log across all decisions (newest first)."""
     events = repository.list_audit_events(session, limit=limit, offset=offset, step=step)
     return {"count": len(events), "items": [e.to_dict() for e in events]}
+
+
+@app.get("/audit/verify")
+def audit_verify(
+    session: Session = Depends(get_session),
+    _user: User = Depends(require_roles(*CAN_AUDIT)),
+) -> dict[str, Any]:
+    """Tamper check: re-derive every decision digest and audit-chain link.
+
+    ``ok`` is false if any write-once field, audit event, or the length of a
+    trail was changed after it was written. ``ledger_root`` is one digest over
+    all chains — record it outside the database to detect a full rewrite."""
+    return integrity.verify(session)

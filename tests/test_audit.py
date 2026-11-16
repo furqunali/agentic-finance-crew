@@ -92,7 +92,7 @@ def test_human_reject_path():
 
 
 def test_cannot_resolve_an_auto_decided_item():
-    rid = _create({**AUTO, "id": "AUD-AUTO2"})["record_id"]
+    rid = _create({**AUTO, "id": "AUD-AUTO2", "employee": "Auto Abe"})["record_id"]
     resp = client.post(f"/decisions/{rid}/approve", json={})
     assert resp.status_code == 409  # ConflictError
 

@@ -90,6 +90,9 @@ def _person(name: str) -> str:
     return " ".join(unicodedata.normalize("NFKC", name or "").split()).casefold()
 
 
+person_key = _person  # public name: the identity key stored on decision records
+
+
 def is_recognized_category(category: str) -> bool:
     """True when the submitted category maps onto a policy bucket. An explicit
     "other" is recognized; anything that only *falls back* to "other" is not."""
