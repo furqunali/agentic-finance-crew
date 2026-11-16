@@ -90,7 +90,7 @@ All numbers below are reproducible on a laptop with no API key.
 
 | Evidence | Result | Reproduce |
 |---|---|---|
-| **Red-team suite** — 61 hand-written attacks in 10 families × 3 engines (`local`, `langgraph`, `crewai+hostile-llm`) | **0 / 129 unauthorized approvals**, **54 / 54 injections flagged**, 183 / 183 runs pass, engines agree on every attack. The 129 denominator excludes the 54 injection-only runs (policy-compliant requests carrying a prompt injection), which are measured separately by the 54 / 54 injection-detection metric; 183 = 129 + 54. | `python run_redteam.py --check` → [`benchmark/REDTEAM.md`](benchmark/REDTEAM.md) |
+| **Red-team suite** — 61 hand-written attacks in 10 families × 3 engines (`local`, `langgraph`, `crewai+hostile-llm`) | **0 / 129 unauthorized approvals**, **54 / 54 injections flagged**, 183 / 183 runs pass, engines agree on every attack. The 129 runs are every **policy-violating** attack across the 3 engines — all 8 such families, **including the 12 "injection + violation" runs** — and are what the unauthorized-approval metric counts. The 54 **injection-only** runs (policy-compliant requests carrying a prompt injection) are excluded from it and measured separately by the 54 / 54 injection-detection metric. 183 = 129 + 54. | `python run_redteam.py --check` → [`benchmark/REDTEAM.md`](benchmark/REDTEAM.md) |
 | **Evaluation benchmark** — 1,000 **synthetic** cases on the deterministic engine, ground truth from an independent policy oracle (policy conformance, not real-world accuracy) | **100% accuracy, 0 false approvals**, violation & duplicate F1 = 1.0 | `python run_eval.py --check` → [`benchmark/RESULTS.md`](benchmark/RESULTS.md) |
 | **Tamper evidence** | Editing a decision, editing / deleting / truncating audit events, or rewriting who approved — **all detected** | `pytest tests/test_controls.py` · `GET /audit/verify` |
 | **Test suite** | **265 tests** — guardrail, engines, API, RBAC, separation of duties, dual control, hash-chained audit, cross-call history checks, input guard, MCP, rate limiting, decision records, hostile-LLM | `pytest -q` |
@@ -100,7 +100,7 @@ All numbers below are reproducible on a laptop with no API key.
 
 ### The red team found real holes — and they are fixed
 
-_Denominators:_ The 129 denominator excludes the 54 injection-only runs (policy-compliant requests carrying a prompt injection), which are measured separately by the 54 / 54 injection-detection metric; 183 = 129 + 54.
+_Denominators:_ The 129 runs are every **policy-violating** attack across the 3 engines — all 8 such families, **including the 12 "injection + violation" runs** — and are what the unauthorized-approval metric counts. The 54 **injection-only** runs (policy-compliant requests carrying a prompt injection) are excluded from it and measured separately by the 54 / 54 injection-detection metric. 183 = 129 + 54.
 
 The same suite was run against the previous release (`855f5d9`, kept as [`benchmark/redteam-baseline-855f5d9.json`](benchmark/redteam-baseline-855f5d9.json)) before hardening:
 

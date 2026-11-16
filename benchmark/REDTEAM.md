@@ -8,6 +8,8 @@ _61 hand-written attacks × 3 engines (`local`, `langgraph`, `crewai+hostile-llm
 | Prompt injections flagged by the input guard | 54 / 54 |
 | Runs passing their expectation | 183 / 183 |
 
+_Denominators: the 129 runs are every policy-violating attack (including the "injection + violation" family) and are what the unauthorized-approval metric counts; the 54 injection-only runs (policy-compliant requests carrying an injection) are measured separately by the injection-detection metric. 183 = 129 + 54._
+
 ## By attack family
 
 | Family | Runs | Passed | Unauthorized approvals |
