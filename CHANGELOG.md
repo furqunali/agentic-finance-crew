@@ -7,6 +7,34 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Adversarial red-team suite** (`finance_crew.redteam`, `run_redteam.py`,
+  `make redteam`): 61 hand-written attacks in 10 families run on every engine,
+  including the real CrewAI orchestrator driven by a hostile stand-in model
+  that always answers "AUTO_APPROVED". Publishes `benchmark/REDTEAM.md` +
+  `redteam.json`; `--check` is a new CI gate that fails on any unauthorized
+  approval. Result: 0 / 129 (was 48 / 129 on `855f5d9`, kept as
+  `benchmark/redteam-baseline-855f5d9.json`).
+- **Separation of duties:** a reviewer cannot approve or reject a request they
+  submitted (`ForbiddenError` → `403`). Off only in `AUTH_DISABLED` local mode.
+- `tests/test_safety.py` — red-team gate, hostile-LLM tests, separation of
+  duties and regressions for every red-team finding (243 tests total).
+- README: *For reviewers*, *Safety approach* (threat model → control → proof),
+  *Supporting evidence* and *Limitations* sections.
+
+### Fixed (found by the red team)
+- Receipt flag given as text (`"false"`, `"no"`, `"0"`) was read as *true*;
+  parsing is now strict and fail-closed.
+- Unrecognized categories (free text, homoglyphs) silently fell back to the
+  looser "other" limit; they now go to a human. Categories are NFKC-normalized
+  and format characters stripped (`ｍｅａｌｓ` → meals).
+- Purchases split into several same-day sub-limit requests were each
+  auto-approved; the same-day employee + category total is now checked.
+- Duplicate detection was defeated by name case/spacing; identity is normalized.
+- `NaN` amounts crashed the request (500) and a boolean amount became $1.00;
+  both are now refused with a validation error (422).
+- Input guard missed quoted JSON verdicts (`"decision": "auto_approved"`).
+- README architecture diagram failed to render on GitHub (Mermaid parse error).
+
 - **AI transparency pack.**
   - `MODEL_CARD.md`: intended and out-of-scope use, limitations, human
     oversight, data handling, evaluation results (1,000-case benchmark + CI

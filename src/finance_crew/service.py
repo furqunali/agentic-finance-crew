@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from . import __version__, observability, repository
 from .config import Settings
-from .errors import ConflictError, NotFoundError, ValidationError
+from .errors import ConflictError, ForbiddenError, NotFoundError, ValidationError
 from .models import ApprovalResult, ExpenseRequest
 from .orchestrator import build_orchestrator
 from .records import DecisionRecord, Status, Step
@@ -151,8 +151,14 @@ def decide_and_store_batch(
     return out
 
 
+def _same_person(actor: str, *owners: str | None) -> bool:
+    a = (actor or "").strip().casefold()
+    return bool(a) and any(a == (o or "").strip().casefold() for o in owners)
+
+
 def resolve_decision(
-    session: Session, decision_id: int, action: str, actor: str, note: str = ""
+    session: Session, decision_id: int, action: str, actor: str, note: str = "",
+    enforce_separation_of_duties: bool = True,
 ) -> DecisionRecord:
     """Apply a human's approve/reject to a decision awaiting review.
 
@@ -173,6 +179,13 @@ def resolve_decision(
         )
     if not actor:
         raise ValidationError("a human approver (actor) is required")
+    # Separation of duties: nobody signs off their own expense. Only disabled
+    # in single-user local mode (AUTH_DISABLED), where every caller is "admin".
+    if enforce_separation_of_duties and _same_person(actor, record.requested_by, record.employee):
+        raise ForbiddenError(
+            f"separation of duties: {actor!r} submitted decision {decision_id} "
+            "and cannot resolve it — another reviewer must"
+        )
 
     record.status = Status.HUMAN_APPROVED if action == "approve" else Status.HUMAN_REJECTED
     record.resolved_by = actor
