@@ -8,6 +8,8 @@ a model's discretion.
 """
 from __future__ import annotations
 
+import unicodedata
+
 from .config import SpendPolicy
 from .guard import inspect_request
 from .models import ExpenseRequest, IntakeResult, PolicyAnalysis
@@ -17,7 +19,11 @@ VALID_CATEGORIES = {"travel", "meals", "software", "equipment", "other"}
 
 def normalize_category(category: str) -> str:
     """Map free-text categories onto the known policy buckets."""
-    c = (category or "").strip().lower()
+    # NFKC folds fullwidth/compatibility forms ("ｍｅａｌｓ" -> "meals") and
+    # format characters (zero-width, bidi) are dropped, so a disguised label
+    # lands in its real bucket instead of the looser "other" limit.
+    c = unicodedata.normalize("NFKC", category or "")
+    c = "".join(ch for ch in c if unicodedata.category(ch) != "Cf").strip().lower()
     aliases = {
         "flight": "travel", "hotel": "travel", "taxi": "travel", "uber": "travel",
         "food": "meals", "lunch": "meals", "dinner": "meals", "restaurant": "meals",
@@ -78,12 +84,26 @@ def compute_risk(request: ExpenseRequest, category: str, violations: list[str], 
     return max(0, min(score, 100))
 
 
+def _person(name: str) -> str:
+    """Identity key for an employee: NFKC, trimmed, whitespace-collapsed,
+    case-folded — so "e3 " or "E3" can't dodge duplicate/split checks."""
+    return " ".join(unicodedata.normalize("NFKC", name or "").split()).casefold()
+
+
+def is_recognized_category(category: str) -> bool:
+    """True when the submitted category maps onto a policy bucket. An explicit
+    "other" is recognized; anything that only *falls back* to "other" is not."""
+    c = unicodedata.normalize("NFKC", category or "")
+    c = "".join(ch for ch in c if unicodedata.category(ch) != "Cf").strip().lower()
+    return c == "other" or normalize_category(c) != "other"
+
+
 def detect_duplicate(request: ExpenseRequest, history: list[ExpenseRequest]) -> bool:
     """Flag a likely duplicate: same employee, amount and category already seen."""
     for h in history:
         if (
             h.id != request.id
-            and h.employee == request.employee
+            and _person(h.employee) == _person(request.employee)
             and abs(h.amount - request.amount) < 0.01
             and normalize_category(h.category) == normalize_category(request.category)
         ):
@@ -91,14 +111,47 @@ def detect_duplicate(request: ExpenseRequest, history: list[ExpenseRequest]) -> 
     return False
 
 
+def split_purchase_total(request: ExpenseRequest, history: list[ExpenseRequest]) -> float:
+    """Same-day total for this employee + category, including this request.
+
+    Catches "structuring": one purchase split into several requests that are
+    each under the auto-approve limit. Only dated requests are compared."""
+    if not request.date:
+        return request.amount
+    cat = normalize_category(request.category)
+    total = request.amount
+    for h in history:
+        if (
+            h.id != request.id and h.date == request.date
+            and _person(h.employee) == _person(request.employee)
+            and normalize_category(h.category) == cat
+        ):
+            total += h.amount
+    return total
+
+
 def analyze(request: ExpenseRequest, category: str, policy: SpendPolicy,
             history: list[ExpenseRequest] | None = None) -> PolicyAnalysis:
     """Full policy analysis (the Analyst agent's job)."""
     violations = check_policy(request, category, policy)
+    # Fail closed on categories we can't classify: a free-text label such as
+    # "Meals & entertainment" (or a homoglyph like "softwаre") would otherwise
+    # fall back to "other" and escape that category's tighter limit.
+    if not is_recognized_category(request.category):
+        violations.append(
+            f"unrecognized category '{request.category}' — a human must classify it"
+        )
     risk = compute_risk(request, category, violations, policy)
     dup = detect_duplicate(request, history or [])
     if dup:
         violations = violations + ["possible duplicate of an earlier request"]
+        risk = min(risk + 15, 100)
+    same_day = split_purchase_total(request, history or [])
+    if not dup and same_day > policy.auto_approve_limit >= request.amount:
+        violations = violations + [
+            f"possible split purchase: same-day {category} total ${same_day:,.2f} "
+            f"exceeds the ${policy.auto_approve_limit:,.2f} auto-approve limit"
+        ]
         risk = min(risk + 15, 100)
     # Input guard (OWASP LLM01): a suspected prompt-injection attempt is a
     # policy violation, so decide() can never auto-approve it -> human review.

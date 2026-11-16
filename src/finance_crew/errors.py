@@ -28,3 +28,9 @@ class ConflictError(FinanceCrewError):
     """Raised when an operation is invalid for a record's current state — e.g.
     trying to human-approve a decision that was already auto-resolved or that
     is not awaiting review."""
+
+
+class ForbiddenError(FinanceCrewError):
+    """Raised when an authenticated actor is not allowed to perform an action on
+    a specific record — e.g. approving an expense they submitted themselves
+    (separation of duties)."""

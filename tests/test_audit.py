@@ -15,8 +15,10 @@ from finance_crew.errors import ConflictError
 from finance_crew.records import Status, Step
 from finance_crew.service import decide_and_store, resolve_decision
 
-# Admin can both submit and review, so it drives the end-to-end workflow here.
+# Admin submits; a *different* person (the finance manager) signs off, because
+# separation of duties forbids resolving your own submission.
 client = TestClient(app, headers=bearer("admin"))
+reviewer = TestClient(app, headers=bearer("manager"))
 
 AUTO = {"id": "AUD-AUTO", "employee": "Auto Ann", "category": "software",
         "amount": 149, "has_receipt": True}
@@ -63,13 +65,13 @@ def test_review_item_is_pending_and_queued():
 
 def test_human_approve_resolves_without_mutating_ai_verdict():
     rid = _create({**REVIEW, "id": "AUD-APP"})["record_id"]
-    resp = client.post(f"/decisions/{rid}/approve", json={"note": "receipt verified"})
+    resp = reviewer.post(f"/decisions/{rid}/approve", json={"note": "receipt verified"})
     assert resp.status_code == 200
     rec = resp.json()
     assert rec["status"] == Status.HUMAN_APPROVED
     assert rec["final_action"] == "approved"
-    # the approver comes from the authenticated token (admin), not the body
-    assert rec["resolved_by"] == "admin"
+    # the approver comes from the authenticated token (manager), not the body
+    assert rec["resolved_by"] == "manager"
     assert rec["resolved_at"] is not None
     # the ORIGINAL machine verdict is preserved, not overwritten
     assert rec["decision"] == "needs_human_review"
@@ -78,12 +80,12 @@ def test_human_approve_resolves_without_mutating_ai_verdict():
     trail = client.get(f"/decisions/{rid}/audit").json()["trail"]
     steps = [e["step"] for e in trail]
     assert steps[-2:] == [Step.HUMAN_REVIEW, Step.FINAL_ACTION]
-    assert any("admin" in e["actor"] for e in trail)
+    assert any("manager" in e["actor"] for e in trail)
 
 
 def test_human_reject_path():
     rid = _create({**REVIEW, "id": "AUD-REJ"})["record_id"]
-    resp = client.post(f"/decisions/{rid}/reject", json={"note": "policy breach"})
+    resp = reviewer.post(f"/decisions/{rid}/reject", json={"note": "policy breach"})
     assert resp.status_code == 200
     assert resp.json()["status"] == Status.HUMAN_REJECTED
     assert resp.json()["final_action"] == "rejected"
@@ -102,8 +104,8 @@ def test_resolving_missing_decision_404():
 
 def test_resolving_twice_conflicts():
     rid = _create({**REVIEW, "id": "AUD-TWICE"})["record_id"]
-    assert client.post(f"/decisions/{rid}/approve", json={}).status_code == 200
-    assert client.post(f"/decisions/{rid}/reject", json={}).status_code == 409
+    assert reviewer.post(f"/decisions/{rid}/approve", json={}).status_code == 200
+    assert reviewer.post(f"/decisions/{rid}/reject", json={}).status_code == 409
 
 
 def test_service_level_conflict_and_immutability():

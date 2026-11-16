@@ -5,6 +5,7 @@ imports and tests cleanly without CrewAI, an LLM, or any API key present.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 from typing import Any
@@ -16,6 +17,21 @@ class Decision(str, Enum):
     AUTO_APPROVED = "auto_approved"
     NEEDS_HUMAN_REVIEW = "needs_human_review"
     REJECTED = "rejected"
+
+
+_TRUE = {"true", "yes", "y", "1", "on"}
+
+
+def _strict_bool(value: Any) -> bool:
+    """Fail-closed boolean: only an explicit yes counts. ``bool("false")`` is
+    True in Python, which would let a string flag bypass the receipt rule."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value == 1
+    if isinstance(value, str):
+        return value.strip().lower() in _TRUE
+    return False
 
 
 @dataclass
@@ -40,11 +56,15 @@ class ExpenseRequest:
         known = {f: d.get(f) for f in cls.__dataclass_fields__}  # type: ignore[attr-defined]
         # sensible defaults for anything missing
         raw_amount = known.get("amount")
+        if isinstance(raw_amount, bool):
+            raise ValidationError(f"amount must be a number, got {raw_amount!r}")
         try:
             known["amount"] = float(raw_amount or 0.0)
         except (TypeError, ValueError) as exc:
             raise ValidationError(f"amount must be a number, got {raw_amount!r}") from exc
-        known["has_receipt"] = bool(known.get("has_receipt"))
+        if not math.isfinite(known["amount"]):
+            raise ValidationError(f"amount must be a finite number, got {raw_amount!r}")
+        known["has_receipt"] = _strict_bool(known.get("has_receipt"))
         known["category"] = (known.get("category") or "other")
         return cls(**{k: v for k, v in known.items() if v is not None})
 

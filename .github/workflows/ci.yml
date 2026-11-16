@@ -38,6 +38,10 @@ jobs:
         run: |
           python run_eval.py --n 300 --check | tee eval_out.txt
           { echo "## 🧪 Evaluation benchmark"; echo '```'; cat eval_out.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Red-team suite — safety gate (0 unauthorized approvals)
+        run: |
+          python run_redteam.py --check --out redteam_ci | tee redteam_out.txt
+          { echo "## 🛡️ Red-team suite"; echo '```'; cat redteam_out.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
   postgres:
     name: Postgres integration (migrations + persistence)

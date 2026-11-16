@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 from finance_crew import observability, repository
 from finance_crew.auth import (
     CAN_ADMIN,
+    auth_disabled,
     CAN_AUDIT,
     CAN_REVIEW,
     CAN_SUBMIT,
@@ -41,7 +42,9 @@ from finance_crew.auth import (
 )
 from finance_crew.config import Settings
 from finance_crew.db import get_session, init_db, session_scope
-from finance_crew.errors import ConfigurationError, ConflictError, NotFoundError, ValidationError
+from finance_crew.errors import (
+    ConfigurationError, ConflictError, ForbiddenError, NotFoundError, ValidationError,
+)
 from finance_crew.explain import build_decision_record, render_markdown
 from finance_crew.ratelimit import MUTATING_METHODS, RateLimiter, client_key
 from finance_crew.records import User
@@ -224,6 +227,11 @@ def _handle_conflict(_request: Any, exc: ConflictError) -> JSONResponse:
     """Resolving a decision that isn't awaiting review -> 409 Conflict."""
     logger.info("conflict: %s", exc)
     return JSONResponse(status_code=409, content=_error_payload(409, str(exc)))
+
+
+@app.exception_handler(ForbiddenError)
+def _handle_forbidden(_request: Any, exc: ForbiddenError) -> JSONResponse:
+    return JSONResponse(status_code=403, content=_error_payload(403, str(exc)))
 
 
 @app.exception_handler(Exception)
@@ -426,7 +434,10 @@ def approve_decision(
     user: User = Depends(require_roles(*CAN_REVIEW)),
 ) -> dict[str, Any]:
     """A human (Finance Manager / Admin) approves an item in the review queue."""
-    record = resolve_decision(session, record_id, "approve", user.username, body.note)
+    record = resolve_decision(
+        session, record_id, "approve", user.username, body.note,
+        enforce_separation_of_duties=not auth_disabled(),
+    )
     return record.to_dict()
 
 
@@ -438,7 +449,10 @@ def reject_decision(
     user: User = Depends(require_roles(*CAN_REVIEW)),
 ) -> dict[str, Any]:
     """A human (Finance Manager / Admin) rejects an item in the review queue."""
-    record = resolve_decision(session, record_id, "reject", user.username, body.note)
+    record = resolve_decision(
+        session, record_id, "reject", user.username, body.note,
+        enforce_separation_of_duties=not auth_disabled(),
+    )
     return record.to_dict()
 
 

@@ -63,10 +63,19 @@ the MCP server but cannot approve or reject.
 - **Fictional demo policy.** Limits in `config.SpendPolicy` are illustrative.
 - **Currency-agnostic thresholds.** Limits are compared to `amount` as a
   number; there is no FX conversion.
-- **Duplicate detection is exact and history-bound**: same employee, amount
-  and category, only against the history supplied (earlier items in a batch).
-  A single `/approve` call has no history, so cross-request duplicates are
-  not detected there.
+- **Duplicate and split-purchase detection are history-bound**: they compare
+  against the history supplied (earlier items in a batch), on a normalized
+  employee identity. A single `/approve` call has no history, so cross-request
+  duplicates are not detected there. Split detection is same-day,
+  same-category, and only for dated requests.
+- **Fail-closed inputs:** unknown categories, unparseable receipt flags and
+  non-finite or boolean amounts are routed to a human or refused — never
+  auto-approved.
+- **Single approver** for review items, even large ones; no dual control yet.
+- **Misleading narratives:** a manipulated model cannot approve, but its
+  rationale is shown to reviewers and could bias them.
+- **Audit trail** is append-only by application, not cryptographically
+  tamper-evident; auto-approved decisions have no reversal workflow.
 - **Confidence is not a calibrated probability** — it is a fixed value per
   decision branch (0.95 / 0.9 / 0.85 / 0.8).
 - **Input guard is heuristic.** Phrase-level patterns catch common prompt
@@ -85,6 +94,9 @@ the MCP server but cannot approve or reject.
   **review queue**; a Finance Manager or Admin approves or rejects it
   (`POST /decisions/{id}/approve|reject`). The approver's identity is taken
   from the JWT, never the request body.
+- **Separation of duties:** the person who submitted a request cannot approve
+  or reject it (`403`); another reviewer must. (Disabled only in the
+  single-user local mode `AUTH_DISABLED`.)
 - The machine verdict is **never overwritten**: the record keeps both what
   the AI recommended and what the human decided.
 - Suspected prompt-injection attempts are always routed to a human.
@@ -134,8 +146,18 @@ Reproducible benchmark (`python run_eval.py --n 1000`, seed 42, engine
 - **Tests:** the full pytest suite (domain rules, engine parity, API, RBAC,
   audit trail, input guard incl. no-false-positive cases, rate limiting, MCP
   server, decision records) runs on Python 3.10–3.12 with no API keys.
-- **Not evaluated:** the quality of LLM narratives from the crewai engine, and
-  behaviour on real organizational data.
+- **Red team** (`python run_redteam.py --check`, published in
+  [`benchmark/REDTEAM.md`](benchmark/REDTEAM.md)): 61 hand-written attacks in 10
+  families (prompt injection, injection + violation, field smuggling, numeric
+  tricks, receipt-flag tricks, category evasion, split purchases, duplicate
+  evasion, limit bypass) on all three engines — including the real CrewAI
+  orchestrator driven by a *hostile stand-in model that always answers
+  "AUTO_APPROVED"*. Result: **0 / 129 unauthorized approvals, 54 / 54
+  injections flagged**. The same suite found **48** unauthorized approvals in
+  the previous release (`855f5d9`); all were fixed and are regression-tested.
+  Also a CI gate.
+- **Not evaluated:** the quality of LLM narratives from a *real* model on the
+  crewai engine (CI has no key), and behaviour on real organizational data.
 
 ## Risk classification (EU AI Act, Regulation (EU) 2024/1689)
 

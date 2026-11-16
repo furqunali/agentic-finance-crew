@@ -16,10 +16,24 @@
   <img src="https://img.shields.io/badge/Auth-JWT%20%2B%20RBAC-000000?style=flat-square&logo=jsonwebtokens&logoColor=white" alt="JWT + RBAC">
   <img src="https://img.shields.io/badge/Observability-Prometheus-E6522C?style=flat-square&logo=prometheus&logoColor=white" alt="Prometheus">
   <img src="https://img.shields.io/badge/benchmark-1000%20cases%20·%20100%25%20·%200%20false%20approvals-0d9488?style=flat-square" alt="benchmark">
+  <img src="https://img.shields.io/badge/red%20team-61%20attacks%20×%203%20engines%20·%200%20unauthorized%20approvals-b91c1c?style=flat-square" alt="red team">
   <img src="https://img.shields.io/badge/UI-web%20console-1c3d5a?style=flat-square" alt="web console">
-  <img src="https://img.shields.io/badge/tests-209%20passing-2ea44f?style=flat-square" alt="tests">
+  <img src="https://img.shields.io/badge/tests-243%20passing-2ea44f?style=flat-square" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT">
 </p>
+
+---
+
+## 📋 For reviewers — the 2-minute version
+
+| | |
+|---|---|
+| **What it is** | A multi-agent (CrewAI / LangGraph) system that triages company expense requests: auto-approve the small and compliant, send everything else to a named human. |
+| **Safety thesis** | *The model advises; deterministic code decides; a human signs anything that matters.* No LLM output, tool call or API payload can approve spend that policy forbids — and nobody can sign off their own expense. |
+| **Strongest evidence** | Adversarial **red-team suite: 61 attacks × 3 engines (including the real CrewAI path driven by a hostile model that always says "approve") → 0 unauthorized approvals / 129**, down from **48** before this hardening. 1,000-case benchmark: **0 false approvals**. **243 tests**. Both safety numbers are **CI gates** — a regression cannot merge. |
+| **Read next** | [🛡️ Safety approach](#️-safety-approach) · [🔬 Supporting evidence](#-supporting-evidence) · [⚠️ Limitations](#️-limitations) · [MODEL_CARD.md](MODEL_CARD.md) · [benchmark/REDTEAM.md](benchmark/REDTEAM.md) |
+
+Everything below runs **offline with no API key** (`pip install -e ".[dev]" && pytest -q && python run_redteam.py`).
 
 ---
 
@@ -38,6 +52,84 @@ A crew of three specialist AI agents that mirror a real finance back-office, wra
 | ✅ **Approving Manager** | Recommends `AUTO_APPROVED` / `NEEDS_HUMAN_REVIEW` / `REJECTED` with an auditable rationale |
 
 The agents **explain and enrich** the decision; a deterministic rule engine **makes** it. The LLM can never approve something policy forbids — it can only reason about it. Anything risky is escalated to a human (the classic **human-in-the-loop** pattern).
+
+## 🛡️ Safety approach
+
+**Goal:** an AI system that is useful on the boring majority of requests but **cannot take an unauthorized or irreversible action** on the rest.
+
+### What the system is — and is not — allowed to do
+
+- **It cannot move money.** There is no payment, transfer or ledger-posting code. Its only output is a recorded *decision*.
+- **Its only autonomous action** is to mark a request `AUTO_APPROVED`, and only when **all** of these hold (`decision.py`, `tools.py`):
+  valid amount and identity · a *recognized* category · within that category's limit · ≤ **$200** (auto-approve limit) ·
+  receipt present above $50 · not a duplicate · not part of a same-day split purchase · no prompt-injection finding · risk score < 60.
+- **Everything else is routed to a human** (review queue) or rejected outright (invalid input). Above **$2,000** a human *always* decides.
+- **A human approval is a deliberate, attributable act:** it needs a JWT with the Finance Manager or Admin role, the approver's identity comes from the token (never the request body), **you cannot approve or reject your own submission** (separation of duties), and it is written to an append-only audit trail next to — never over — the machine's verdict.
+- **Agents have no write capability.** The LLM agents produce narrative only; the MCP server exposes *submit* and *read* tools but **no approve/reject tool**.
+
+### Threat model → control → proof
+
+| # | Threat | Control | Where | Proof |
+|---|---|---|---|---|
+| 1 | The LLM hallucinates, or is manipulated into, "approve" | Verdict is computed by the deterministic `decide()` guardrail; the crew's text is only appended as a rationale | `decision.py`, `crew.py` | `tests/test_safety.py::test_hostile_llm_cannot_approve`; red-team engine `crewai+hostile-llm` |
+| 2 | Prompt injection in free-text fields (OWASP LLM01) | Input guard flags instruction/role override, exfiltration, tool/verdict smuggling, hidden Unicode → **human review**; flagged text never reaches the prompt | `guard.py`, `tools.analyze` | `tests/test_guard.py`; red team: **54/54 injections flagged** |
+| 3 | Excessive agency (OWASP LLM06) — an agent or assistant approves | No approve tool for agents or MCP clients; approval endpoints are human-only behind RBAC | `mcp_server.py`, `app.py` | `tests/test_mcp_server.py`, `tests/test_auth.py` |
+| 4 | Unauthorized or self-interested human approval | JWT + RBAC (4 roles); approver from token; **separation of duties** (403 on self-approval) | `auth.py`, `service.resolve_decision` | `tests/test_safety.py` (separation-of-duties tests), `tests/test_auth.py` |
+| 5 | Policy evasion through malformed input — `"false"` receipt flag, `NaN`/boolean amounts, disguised or homoglyph categories | **Fail-closed parsing**: strict booleans, finite numbers only, NFKC + format-char stripping, unknown category → human | `models.py`, `tools.py` | red-team families *numeric*, *receipt-flag*, *category evasion* |
+| 6 | Structuring and duplicate resubmission | Same-day split-purchase detection; duplicate check on a normalized identity (case, spacing, Unicode) | `tools.py` | red-team families *split purchase*, *duplicate evasion* |
+| 7 | Tampering / deniability after the fact | Append-only audit trail; machine verdict immutable; per-decision decision record | `records.py`, `explain.py` | `tests/test_audit.py`, `tests/test_explain.py` |
+| 8 | Smuggled decision fields in the payload (`"decision": "auto_approved"`) | Unknown fields are dropped at the boundary; the verdict is always recomputed | `models.from_dict` | red-team family *field smuggling* |
+| 9 | Abuse / brute force | Per-client rate limiting incl. login | `ratelimit.py` | `tests/test_ratelimit.py` |
+| 10 | A future change silently weakens safety | **Two CI gates** on every push: benchmark (0 false approvals) and red team (0 unauthorized approvals) | `.github/workflows/ci.yml` | CI run summary |
+
+**Design rule behind all of it: fail closed.** When the system is unsure — unparseable flag, unknown category, injection pattern, high risk — the request goes to a human. The cost of a mistake is one extra review, never an unauthorized approval.
+
+## 🔬 Supporting evidence
+
+All numbers below are reproducible on a laptop with no API key.
+
+| Evidence | Result | Reproduce |
+|---|---|---|
+| **Red-team suite** — 61 hand-written attacks in 10 families × 3 engines (`local`, `langgraph`, `crewai+hostile-llm`) | **0 / 129 unauthorized approvals**, **54 / 54 injections flagged**, 183 / 183 runs pass, engines agree on every attack | `python run_redteam.py --check` → [`benchmark/REDTEAM.md`](benchmark/REDTEAM.md) |
+| **Evaluation benchmark** — 1,000 synthetic cases, ground truth from an independent policy oracle | **100% accuracy, 0 false approvals**, violation & duplicate F1 = 1.0 | `python run_eval.py --check` → [`benchmark/RESULTS.md`](benchmark/RESULTS.md) |
+| **Test suite** | **243 tests** — guardrail, engines, API, RBAC, separation of duties, audit, input guard, MCP, rate limiting, decision records, hostile-LLM | `pytest -q` |
+| **CI** | Python 3.10–3.12, Postgres integration, Docker build, **both safety gates** | [Actions](https://github.com/furqunali/agentic-finance-crew/actions/workflows/ci.yml) |
+| **Live demo** | Key-free local engine | [agentic-finance-crew-deploy.vercel.app](https://agentic-finance-crew-deploy.vercel.app) |
+| **Transparency** | Model card + per-decision explainable record (`/decisions/{id}/explanation`) | [`MODEL_CARD.md`](MODEL_CARD.md) |
+
+### The red team found real holes — and they are fixed
+
+The same suite was run against the previous release (`855f5d9`, kept as [`benchmark/redteam-baseline-855f5d9.json`](benchmark/redteam-baseline-855f5d9.json)) before hardening:
+
+| Attack family (runs across 3 engines) | Unauthorized approvals before | After | Fix |
+|---|---:|---:|---|
+| Receipt-flag tricks — `"false"`, `"no"`, `"0"` read as *true* (21) | 15 | **0** | Strict, fail-closed boolean parsing |
+| Category evasion — "Meals & entertainment", Cyrillic `а`, fullwidth `ｍｅａｌｓ` (21) | 12 | **0** | Unknown category → human; NFKC + format-char normalization |
+| Split purchase — one purchase as several sub-$200 requests (9) | 9 | **0** | Same-day employee + category total checked against the limit |
+| Duplicate evasion — `"d. novak"`, trailing spaces (18) | 9 | **0** | Duplicate check on a normalized identity |
+| Numeric tricks — boolean amount `true` became $1.00 (27) | 3 | **0** | Booleans and non-finite numbers refused (`422`) |
+| `NaN` amount crashed the request (500) | 6 crashes | **0** | Clean validation error |
+| Injection: `"decision": "auto_approved"` not flagged (flag runs) | 3 missed | **0** | Guard pattern covers quoted JSON verdicts |
+| **Total** | **48 / 129** | **0 / 129** | |
+
+Plus one control the red team does not cover by itself: **separation of duties** (a reviewer approving their own expense) — added and tested (`403`).
+
+## ⚠️ Limitations
+
+Honest boundaries of what has and hasn't been shown:
+
+- **Synthetic data, fictional policy.** No real financial data, no production deployment. The benchmark measures conformance to the written policy, not real-world fraud detection.
+- **The real LLM is not benchmarked in CI.** CI has no API key; the red team drives the real CrewAI code path with a *hostile stand-in model*. That proves the guardrail holds against the worst-case output — it does not measure the quality or honesty of a real model's narrative.
+- **Misleading narratives reach humans.** A manipulated model can't approve anything, but its rationale is shown to reviewers and could nudge them (automation bias). Mitigation today: the verdict and rules fired are shown separately from the narrative.
+- **The input guard is heuristic.** Pattern- and Unicode-based; novel paraphrases, other languages or encodings (e.g. base64) can slip past it. Impact is bounded — an unflagged injection still can't approve spend — but an unflagged injection does reach the model's prompt.
+- **Single human approver**, even for very large amounts; no dual control or approval tiers yet. Reviewers can still rubber-stamp.
+- **History-bound checks.** Duplicate and split-purchase detection only see the history supplied to the call (a batch); a single `/approve` request is not compared with previously stored decisions. Split detection is same-day and same-category, and only for dated requests.
+- **Static thresholds**; currency-agnostic; the confidence value is per-branch, not calibrated.
+- **Deployment hygiene is on the operator:** the bootstrap `admin/admin` account must be changed; `AUTH_DISABLED` (local single-user mode) turns off login **and** separation of duties; JWT is HS256 with a shared secret; no MFA; rate limits are per process.
+- **Audit trail is append-only by application, not cryptographically tamper-evident** — a database administrator could still alter rows.
+- **Auto-approved decisions cannot be reopened** through the API; a clawback/reversal workflow would be needed before connecting this to a payment system.
+
+Planned next steps are in the [Roadmap](#️-roadmap).
 
 ## 🏗️ Architecture
 
@@ -58,7 +150,7 @@ flowchart TD
     C --> Crew
     LG --> Crew
     L --> Crew
-    Crew --> G[[decide&#40;&#41; — policy guardrail]]
+    Crew --> G[["decide() — policy guardrail"]]
     G --> R1[Auto-approved]
     G --> R2[Human review queue]
     G --> R3[Rejected]
@@ -82,6 +174,8 @@ All three call the **same shared tools** for the hard rules, and all funnel thro
 - **Multi-agent orchestration** with CrewAI (sequential Intake → Analyst → Approver crew).
 - **Policy-as-code guardrail** — spend limits, receipt rules, per-category limits and duplicate detection live in tested code, not in prompts.
 - **Human-in-the-loop** routing for anything over-limit, non-compliant or high-risk — with a **review queue** and human approve/reject actions.
+- **Separation of duties** — nobody can approve or reject their own submission (`403`), on top of role checks.
+- **Adversarially tested** — a [red-team suite](benchmark/REDTEAM.md) of 61 attacks runs on every engine (including CrewAI driven by a hostile model) with **0 unauthorized approvals**, enforced as a CI gate.
 - **Durable system-of-record** — every decision is persisted via SQLAlchemy with Alembic migrations; runs on zero-config **SQLite** in dev and **PostgreSQL** in production by flipping one env var.
 - **Immutable audit trail** — each decision logs the full lifecycle (who requested it → what the AI recommended → which rules fired → who approved it → timestamps, reason, model/version). The machine verdict is never overwritten by a human resolution.
 - **Auth & RBAC** — JWT bearer tokens with four roles (**Employee / Finance Manager / Auditor / Admin**); the approver's identity comes from the token, not the request body.
@@ -95,7 +189,7 @@ All three call the **same shared tools** for the hard rules, and all funnel thro
 - **Runs with zero secrets** via the local engine — great for demos, CI and offline dev.
 - **FastAPI service** (`/auth/*`, `/approve`, `/approve/batch`, `/decisions`, `/decisions/{id}/explanation`, `/review-queue`, `/audit`, `/metrics`, `/health`) with OpenAPI docs at `/docs` and a web console at `/ui`.
 - **Fully containerized** (multi-stage, non-root, healthcheck) and **Kubernetes-ready**.
-- **CI on every push** — tests across Python 3.10–3.12 + a Docker build/health check.
+- **CI on every push** — tests across Python 3.10–3.12, a Docker build/health check, and two safety gates (benchmark + red team).
 
 ## 🧰 Tech Stack
 
@@ -133,7 +227,7 @@ cd agentic-finance-crew
 pip install -e ".[dev]"
 
 python run_demo.py          # run the crew over the sample batch (no key needed)
-pytest -q                   # 209 tests, all green
+pytest -q                   # 243 tests, all green
 uvicorn app:app --reload    # web console at http://localhost:8000/ui · API docs at /docs
 ```
 
@@ -329,7 +423,7 @@ curl -s http://localhost:8000/approve           -H "Authorization: Bearer $TOKEN
 # 3) Admins create users with roles
 curl -s -X POST http://localhost:8000/auth/register -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"username":"m.khan","password":"change-me","role":"finance_manager","full_name":"Mustafa Khan"}'
+  -d '{"username":"j.lee","password":"change-me","role":"finance_manager","full_name":"Jordan Lee"}'
 ```
 
 A missing/invalid token returns `401`; a valid token without the required role
@@ -383,7 +477,7 @@ curl -s http://localhost:8000/review-queue
 # A Finance Manager approves item #7
 curl -s -X POST http://localhost:8000/decisions/7/approve \
   -H "Content-Type: application/json" \
-  -d '{"actor":"m.khan (Finance Manager)","note":"Receipt verified with vendor."}'
+  -d '{"actor":"j.lee (Finance Manager)","note":"Receipt verified with vendor."}'
 #   -> 200; status "human_approved", final_action "approved"
 #   Approving an auto-decided item returns 409 (it isn't awaiting review).
 
@@ -397,7 +491,8 @@ curl -s "http://localhost:8000/audit?step=final_action&limit=50"
 
 ```bash
 pip install -e ".[dev]"      # pytest + httpx + langgraph
-pytest -q                    # 196 tests: domain logic, API, engines, persistence, audit, auth/RBAC, observability, evaluation, UI, MCP server, input guard, rate limiting, decision records, error paths
+pytest -q                    # 243 tests: domain logic, API, engines, persistence, audit, auth/RBAC, separation of duties, observability, evaluation, red team, hostile-LLM, UI, MCP server, input guard, rate limiting, decision records, error paths
+python run_redteam.py --check   # adversarial red-team suite (all engines) — 0 unauthorized approvals
 python run_demo.py           # end-to-end CLI smoke test over the sample batch
 ```
 
@@ -422,8 +517,8 @@ system — not just demoed.
   | `afc_http_request_latency_seconds{method,path}` | histogram | HTTP latency |
   | `afc_failures_total{kind}` | counter | Failure rate (5xx / unhandled) |
   | `afc_llm_tokens_total{engine}` · `afc_llm_cost_usd_total{engine}` | counter | LLM tokens & cost (real crew) |
-| `afc_rate_limited_total{method,path}` | counter | Requests refused with `429` by the rate limiter |
-| `afc_input_guard_flags_total{category}` | counter | Requests flagged by the input guard, by injection category |
+  | `afc_rate_limited_total{method,path}` | counter | Requests refused with `429` by the rate limiter |
+  | `afc_input_guard_flags_total{category}` | counter | Requests flagged by the input guard, by injection category |
 
 - **Per-decision signals persisted** on every record: `latency_ms`, `tokens`,
   `cost_usd`. Deterministic engines use no LLM, so their tokens/cost are
@@ -593,11 +688,16 @@ three engines get it identically.
 - ✅ **Immutable audit trail + human-review queue** (who approved, rules fired, model/version; approve/reject workflow) — *done*.
 - ✅ **Authentication & RBAC** (JWT; Employee / Finance Manager / Auditor / Admin) gating every action — *done*.
 - ✅ **Observability** — Prometheus metrics, structured logs, per-decision latency / token / cost / failure-rate — *done*.
-- ✅ **Evaluation benchmark** — 1,000 synthetic cases scoring accuracy, violation/duplicate detection, false approve/reject, escalation, latency & cost; published + CI safety gate — *done*.
-- Receipt/invoice ingestion (CSV/Excel batch upload; PDF/image OCR) and Slack/email approval actions.
-- Add **eval cases** scoring the crew's rationale quality against the deterministic ground truth.
-- Slack / email approval actions for the human-in-the-loop step.
-- Deploy the FastAPI service (runs key-free in local mode) as a public live demo.
+- ✅ **Evaluation benchmark** — 1,000 synthetic cases; published + CI safety gate — *done*.
+- ✅ **Prompt-injection + PII guard, rate limiting, MCP server, model card, decision records** — *done*.
+- ✅ **Red-team suite + hardening** (fail-closed parsing, category/split/duplicate evasion, separation of duties) with a CI gate — *done*.
+- ✅ **Public live demo** (key-free local engine) — *done*.
+- **Dual control** for high-value items (two distinct approvers above a threshold) and approval tiers by amount.
+- **History-aware checks** against stored decisions (duplicates / split purchases across calls and days).
+- **Tamper-evident audit trail** (hash-chained events) and a reversal/clawback workflow.
+- **Real-LLM evaluation** — score a live model's rationale against the deterministic ground truth, and run the red team with a real key in a scheduled job.
+- Multilingual / encoded-injection coverage for the input guard.
+- Receipt/invoice ingestion (PDF/image OCR) and Slack/email approval actions.
 
 ## 🛠️ Common tasks
 
@@ -619,4 +719,4 @@ Run `make help` to list them.
 
 ---
 
-<sub>A <b>governed, evaluated enterprise AI decision system</b> — multi-agent reasoning behind a policy guardrail, with auth/RBAC, a persisted audit trail, observability, and a published benchmark. Built by <b>Furqan Ali</b> — Senior AI Engineer. Architecture, agent design and DevOps by the author. Data is fully synthetic.</sub>
+<sub>A <b>governed, evaluated enterprise AI decision system</b> — multi-agent reasoning behind a policy guardrail, with auth/RBAC, separation of duties, a persisted audit trail, observability, a published benchmark and an adversarial red-team gate. Built by <b>Furqan Ali</b> — Senior AI Engineer. Architecture, agent design and DevOps by the author. Data is fully synthetic.</sub>

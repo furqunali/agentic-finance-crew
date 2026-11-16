@@ -105,7 +105,7 @@ _INJECTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             r"\"?(function_call|tool_calls?)\"?\s*:|"
             r"\b(call|invoke|execute)\s+(the\s+|this\s+)?(\w+\s+)?(tool|function|command)\b|"
             r"\brun\s+(the\s+|this\s+)?(shell|command)\b|"
-            r"\b(decision|status|verdict)\s*[:=]\s*\"?(auto_?approved|approved)\b|"
+            r"\b(decision|status|verdict)[\"']?\s*[:=]\s*[\"']?(auto[\s_-]?approved|approved)\b|"
             r"\b(mark|set|force)\s+(this|it|the\s+(request|expense|decision))?\s*(as|to)\s+"
             r"\"?(auto[\s_-]?)?approved\b)",
             _I,
