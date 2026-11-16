@@ -288,6 +288,11 @@ def render_markdown(rep: dict[str, Any]) -> str:
         f"| Prompt injections flagged by the input guard | {rep['injections_flagged']} / {rep['flag_runs']} |",
         f"| Runs passing their expectation | {rep['passed']} / {rep['runs']} |",
         "",
+        f"_Denominators: the {rep['block_runs']} runs are every policy-violating attack (including the "
+        "\"injection + violation\" family) and are what the unauthorized-approval metric counts; the "
+        f"{rep['flag_runs']} injection-only runs (policy-compliant requests carrying an injection) are "
+        f"measured separately by the injection-detection metric. {rep['runs']} = {rep['block_runs']} + {rep['flag_runs']}._",
+        "",
         "## By attack family",
         "",
         "| Family | Runs | Passed | Unauthorized approvals |",
